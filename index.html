@@ -1,0 +1,2333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Peg Cascade Feel Test</title>
+<style>
+  :root { color-scheme: dark; }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; overflow:hidden; background:#0b0e14; font-family:-apple-system, "SF Pro", Roboto, sans-serif; }
+  #stage { position:fixed; inset:0; touch-action:none; display:block; }
+
+  /* HUD readout (top-left, non-interactive) */
+  #hud {
+    position:fixed; top:calc(env(safe-area-inset-top, 0px) + 6px); left:8px;
+    font:11px/1.5 ui-monospace, Menlo, monospace; color:#7d8799;
+    pointer-events:none; text-shadow:0 1px 2px #000; white-space:pre;
+  }
+
+  /* Bottom sheet */
+  #panel {
+    position:fixed; left:0; right:0; bottom:0; z-index:10;
+    background:rgba(16,20,30,.92); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+    border-top:1px solid #232b3d; border-radius:14px 14px 0 0;
+    padding-bottom:env(safe-area-inset-bottom, 0px);
+  }
+  #panel.collapsed #panel-body { display:none; }
+
+  /* unit bar: current draw + run buttons */
+  #unitbar { display:flex; flex-wrap:wrap; gap:6px; padding:9px 10px 0; align-items:stretch; }
+  .ucard {
+    flex:1 0 80px; display:flex; flex-direction:column; align-items:center; gap:2px;
+    background:#161d2c; border:1.5px solid #2a3550; border-radius:10px;
+    padding:6px 2px 5px; user-select:none; -webkit-user-select:none;
+    font-size:11px; color:#aeb8c9; position:relative; cursor:pointer;
+  }
+  .ucard.sel { border-color:#5b93d8; background:#1c2c48; color:#e8eef8; }
+  .ucard .ic { font-size:16px; line-height:1; }
+  .ucard .ct {
+    position:absolute; top:-6px; right:-4px; min-width:17px; text-align:center;
+    background:#33528a; color:#e8eef8; font:700 10px/17px sans-serif; border-radius:9px;
+  }
+  .ucard.empty { opacity:.4; border-color:#2a3550; background:#161d2c; color:#aeb8c9; }
+  #btn-start { flex:0 0 70px; background:#1d4a30; border-color:#2f7a4e; font-size:13px; padding:10px 4px; }
+  #btn-levels  { flex:1 0 auto; background:#4a3a15; border-color:#7a6228; font-size:12px; }
+  #btn-random  { flex:1 0 auto; background:#3a2a55; border-color:#5c4a8a; font-size:12px; }
+  #btn-default { flex:1 0 auto; background:#242c38; border-color:#3a4658; font-size:12px; }
+
+  #panel-head { display:flex; align-items:center; gap:8px; padding:9px 10px 10px; }
+  #panel-head .grow { flex:1; }
+  button {
+    font:600 13px/1 -apple-system, sans-serif; color:#dfe6f2;
+    background:#232b3d; border:1px solid #33405c; border-radius:9px;
+    padding:10px 12px; cursor:pointer; user-select:none; -webkit-user-select:none;
+  }
+  button:active { background:#33405c; }
+  #btn-toggle { background:#1a2233; }
+  #btn-drop  { background:#173a2a; border-color:#1f5c40; }
+  #btn-reset { background:#3a1d1d; border-color:#5c2f2f; }
+  #panel-body {
+    max-height:42vh; overflow-y:auto; overscroll-behavior:contain;
+    padding:2px 14px 14px;
+  }
+  .sect { font:700 10px/1 sans-serif; letter-spacing:.12em; text-transform:uppercase;
+          color:#5b93d8; margin:14px 0 4px; }
+  .row { display:flex; align-items:center; gap:10px; padding:5px 0; }
+  .row label { flex:0 0 108px; font-size:12px; color:#aeb8c9; }
+  .row output { flex:0 0 52px; font:11px ui-monospace, Menlo, monospace; color:#e8eef8; text-align:right; }
+  input[type=range] { flex:1; height:28px; accent-color:#5b93d8; }
+  .seg { display:flex; flex:1; gap:0; border:1px solid #33405c; border-radius:8px; overflow:hidden; }
+  .seg button { flex:1; border:0; border-radius:0; background:transparent; padding:8px 0; font-size:12px; }
+  .seg button.on { background:#33528a; }
+  .switchrow { justify-content:space-between; }
+  .switchrow input[type=checkbox] { width:44px; height:26px; accent-color:#5b93d8; }
+  .hint { font-size:10px; color:#5a6475; padding:4px 0 0; line-height:1.5; }
+
+  /* centered draft popup — the un-missable pick */
+  #draft {
+    position:fixed; inset:0; z-index:30; display:flex; align-items:center; justify-content:center;
+    background:rgba(5,8,14,.6); backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px);
+  }
+  #draft[hidden] { display:none; }
+  #draft-box {
+    width:min(88vw, 380px); background:rgba(18,23,35,.97); border:1.5px solid #33405c;
+    border-radius:18px; padding:16px 14px 14px; text-align:center;
+    box-shadow:0 12px 48px rgba(0,0,0,.6);
+  }
+  .dtitle { font:800 15px/1 -apple-system, sans-serif; color:#e8eef8; letter-spacing:.08em; margin-bottom:14px; }
+  #draft-cards { display:flex; gap:12px; }
+  .dcard {
+    flex:1; display:flex; flex-direction:column; align-items:center; gap:8px;
+    background:#1c2c48; border:2px solid #5b93d8; border-radius:14px;
+    padding:22px 6px 18px; cursor:pointer; user-select:none; -webkit-user-select:none;
+  }
+  .dcard:active { background:#33528a; }
+  .dcard .dic { font-size:38px; line-height:1; }
+  .dcard .dname { font:700 14px/1 -apple-system, sans-serif; color:#e8eef8; }
+  .dsub { font-size:11px; color:#8a94a8; margin-top:14px; line-height:1.5; }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<div id="hud"></div>
+
+<div id="draft" hidden>
+  <div id="draft-box">
+    <div class="dtitle">CHOOSE A UNIT</div>
+    <div id="draft-cards">
+      <div class="dcard" id="dcard0"><span class="dic"></span><span class="dname"></span></div>
+      <div class="dcard" id="dcard1"><span class="dic"></span><span class="dname"></span></div>
+    </div>
+    <div class="dsub">pick a card, then tap a peg to place it<br><span id="draft-left"></span> placements left this wave</div>
+  </div>
+</div>
+
+<div id="panel" class="collapsed">
+  <div id="unitbar">
+    <div class="ucard" id="draw-card0">
+      <span class="ic" id="draw-ic0">🔺</span><span id="draw-name0">Laser</span>
+      <span class="ct" id="draw-count">0</span>
+    </div>
+    <div class="ucard" id="draw-card1">
+      <span class="ic" id="draw-ic1">💥</span><span id="draw-name1">Sonic</span>
+    </div>
+    <button id="btn-start">▶ Start</button>
+    <button id="btn-levels" title="Play the 3-level campaign">🏁 Levels</button>
+    <button id="btn-random" title="Random level + inventory">🎲 Random</button>
+    <button id="btn-default" title="Back to the default sandbox">🧹 Default</button>
+  </div>
+  <div id="panel-head">
+    <button id="btn-toggle">⚙ Tuning ▾</button>
+    <div class="grow"></div>
+    <button id="btn-drop">＋ Drop 1</button>
+    <button id="btn-reset">⟲ Reset</button>
+  </div>
+  <div id="panel-body">
+    <div class="row switchrow">
+      <label style="flex:1">✨ Juice (shake / flash / trails / squash)</label>
+      <input type="checkbox" id="juice-toggle">
+    </div>
+    <div class="row switchrow">
+      <label style="flex:1">⚪ Ball-ball collisions</label>
+      <input type="checkbox" id="ballcol-toggle">
+    </div>
+    <div class="row switchrow">
+      <label style="flex:1">🔥 Traffic heatmap (shown between waves)</label>
+      <input type="checkbox" id="heat-toggle">
+    </div>
+
+    <div class="sect">Game</div>
+    <div id="sliders-game"></div>
+
+    <div class="sect">Physics</div>
+    <div id="sliders-physics"></div>
+
+    <div class="sect">Board</div>
+    <div id="sliders-board"></div>
+
+    <div class="sect">Balls</div>
+    <div class="row">
+      <label>Spawn position</label>
+      <div class="seg" id="spawn-seg">
+        <button data-v="0">Fixed</button>
+        <button data-v="1">Random</button>
+      </div>
+      <output></output>
+    </div>
+    <div id="sliders-balls"></div>
+
+    <div class="sect">Laser</div>
+    <div id="sliders-laser"></div>
+
+    <div class="sect">Sonic boom</div>
+    <div id="sliders-sonic"></div>
+
+    <div class="sect">Gunner</div>
+    <div id="sliders-gunner"></div>
+
+    <div class="sect">Sniper</div>
+    <div id="sliders-sniper"></div>
+
+    <div class="sect">Vacuum</div>
+    <div id="sliders-vacuum"></div>
+
+    <div class="sect">Portal</div>
+    <div id="sliders-portal"></div>
+
+    <div class="sect">Fan</div>
+    <div id="sliders-fan"></div>
+
+    <div class="sect">Flipper</div>
+    <div id="sliders-flipper"></div>
+
+    <div class="sect">Sweeper</div>
+    <div id="sliders-sweeper"></div>
+
+    <div class="hint">Draft placement: the card shows your current draw — tap a free peg to place it.
+Portals come as pairs (two taps; each pair only links within its own color). Your FIRST laser draw
+is a pair (two taps); later laser draws are single emitters that join the existing web.
+Draws are committed; no take-backs.
+Tap a placed unit to UPGRADE it with coins (+30% stats per level; portals can't be upgraded).
+Clear a wave to earn more draws + coins. All values + placements live in the URL hash.</div>
+  </div>
+</div>
+
+<script>
+'use strict';
+(() => {
+
+/* ============================== CONFIG ============================== */
+
+const DEFAULTS = {
+  gravity:     700,    // px/s^2 — slow, floaty pace
+  restitution: 0.55,
+  damping:     0.12,   // per-second exponential air damping
+  ballRadius:  7,
+  pegRadius:   5,
+  spacingX:    44,
+  spacingY:    48,
+  spawnRate:   0.65,   // balls/sec — one every ~1.5s (0 = off)
+  spawnMode:   1,      // 0 fixed, 1 random
+  launchVx:    250,    // launcher: max lateral entry speed (seeded per ball)
+  ballHp:      25,
+  laserDps:    60,
+  sonicRadius: 130,    // sonic defaults ×1.5-ish across the board
+  sonicDps:    23,     // continuous field damage/sec
+  sonicPush:   750,    // outward field accel px/s^2
+  gunRange:    150,
+  gunDmg:      12,     // per bullet
+  gunRate:     2.5,    // bullets/sec
+  gunKnock:    200,    // impulse along the bullet's direction on hit
+  bulletSpeed: 750,    // gunner bullet speed px/s
+  snipRange:   280,
+  snipDmg:     20,     // per shot — high, but can't one-shot a full-HP basic ball
+  snipRate:    0.4,    // shots/sec — slow
+  vacRadius:   110,
+  vacPull:     800,    // inward field accel px/s^2
+  vacDps:      30,     // damage/sec to balls touching the vacuum core (not the field)
+  portalRadius:16,     // capture radius around each endpoint
+  fanWidth:    70,     // wind column width
+  fanReach:    260,    // how far up the wind reaches
+  fanForce:    1150,   // upward accel at the fan, fading with height
+  flipLen:     52,     // flipper arm length
+  flipStr:     22,     // flip speed, rad/s (drives the launch power)
+  sweepSpeed:  220,    // px/s
+  sweepImpulse:420,    // px/s lateral kick
+  sweepY:      0.72,   // fraction of height
+  cap:         120,
+  juice:       1,
+  seed:        0,      // 0 = randomize on load
+  playerHp:    400,
+  waveSize:    30,     // balls in wave 1; later waves grow
+  minMass:     0.35,   // mass fraction of a ball at 0 HP (1 = full weight)
+  holeFrac:    0,      // fraction of pegs randomly removed (level-gen)
+  holeSeed:    1,      // which pegs are removed
+  drawsW1:     5,      // unit draws before wave 1
+  drawsPW:     3,      // extra draws granted per cleared wave
+  coinsPW:     40,     // coins granted per cleared wave
+  coinsKill:   1,      // coins per ball killed (turret kills pay out)
+  ballCol:     1,      // ball-ball collisions (the chaos source for fixed spawns)
+  heatmap:     1,      // show last wave's traffic between waves
+  recycleToll: 5,      // HP a ball pays per ↺ recycle (0 = free; bounds endless loops)
+  waveTimeout: 15,     // s after the quota spawns before stragglers pop (0 = off)
+  specialFrac: 0.24,   // share of spawns that are special balls (split tank / tiny)
+};
+
+// ball types: hp / mass (knock resistance) / fall (net gravity feel) / rest (bounciness) / rad (size)
+const BALL_TYPES = {
+  basic: { hp: 1,   mass: 1,    fall: 1,    rest: 1,    rad: 1    },
+  tank:  { hp: 3,   mass: 1.7,  fall: 0.75, rest: 0.45, rad: 1.35 },   // net fall ~1.3×, barely bounces
+  tiny:  { hp: 0.5, mass: 0.55, fall: 2.3,  rest: 1.3,  rad: 0.65 },   // net fall ~1.25×, pinballs around
+};
+
+// wave escalation
+const WAVE_SIZE_GROWTH = 0.6;    // +60% balls per wave
+const WAVE_HP_GROWTH   = 0.15;   // ball HP creeps up slightly each wave
+const UPGRADE_COST     = 20;     // coins for level 1; scales with level
+const UPGRADE_BOOST    = 0.3;    // +30% stats per level
+
+// 🏁 campaign: 3 levels × 3 waves. laser/portal stock counts are pairs.
+// Boards are DESIGNED pinball-style layouts: ASCII maps, 'o' = peg, '.' = open.
+// Rows spread top->bottom over the play field; columns spread across the width.
+// Fixed spawn + ball-ball collisions make the flow braid down the authored lanes.
+const WAVES_PER_LEVEL = 3;
+const LEVELS = [
+  { name: 'The Funnel',   // wall ramps funnel to a center chute; a bumper guards the mouth
+    layout: [
+      // sockets: throat + under-bumper are prime; the two top corners are traps
+      '\\......./',
+      '.\\...../.',
+      '*.\\.*./.*',
+      '...\\./...',
+      '..*...*..',
+      '..o.B.o..',
+      '.o..*..o.',
+      '...B.o...',
+      '..o...o..',
+      '.oo...oo.',
+    ],
+    cfg: { pegRadius: 6, sweepY: 0.78, sweepSpeed: 160, spawnMode: 0,
+           spawnRate: 0.65, waveSize: 8, ballHp: 25, drawsW1: 3, drawsPW: 2, coinsPW: 30 },
+    stock: { laser: 1, sonic: 1, gunner: 2, vacuum: 0, portal: 0, sniper: 0, fan: 0, flipper: 0 } },
+  { name: 'Twin Chutes',  // two ramp funnels feed twin chutes around a walled wedge
+    layout: [
+      // sockets: chute mouths + wedge + gate guards are prime; corners and the left edge are poor
+      '.\\./...\\./.',
+      '..*.....*..',
+      '*.o..B..o.*',
+      '\\...o.o.../',
+      '..B.....o..',
+      '*o../o\\..o.',
+      '.../.*.\\...',
+      '.o.......o.',
+      '\\..o.o.o../',
+      '....*.*....',
+      '.oo.o.o.oo.',
+      '...........',
+    ],
+    cfg: { pegRadius: 5.5, sweepY: 0.72, sweepSpeed: 220, spawnMode: 0,
+           spawnRate: 0.85, waveSize: 12, ballHp: 30, drawsW1: 4, drawsPW: 2, coinsPW: 40 },
+    stock: { laser: 1, sonic: 1, gunner: 2, vacuum: 1, portal: 0, sniper: 1, fan: 0, flipper: 0 } },
+  { name: 'The Palace',   // roof sheds flow to the sides, ramps funnel it back through bumpers
+    layout: [
+      // sockets: under-roof flanks and gate guards are prime; top corners + the roof shadow are traps
+      '*.........*',
+      '..*./\\.....',
+      '.../*.\\....',
+      '.o..*.*..o.',
+      '...o.B.o...',
+      '.\\..*.*../.',
+      '..o..o..o..',
+      '..*.o.o.*..',
+      '.o...B...o.',
+      '\\.o..*..o./',
+      '..*.o.o.*..',
+      '.o.o...o.o.',
+      '.oo.o.o.oo.',
+    ],
+    cfg: { pegRadius: 5, sweepY: 0.66, sweepSpeed: 300, spawnMode: 0,
+           spawnRate: 1.2, waveSize: 16, ballHp: 40, drawsW1: 5, drawsPW: 3, coinsPW: 50 },
+    stock: { laser: 2, sonic: 1, gunner: 2, vacuum: 1, portal: 1, sniper: 1, fan: 1, flipper: 1 } },
+];
+
+// bottom baskets, left -> right; equal slices of the board width
+const BASKETS = [
+  { kind: 'recycle',            label: '↺',   color: 'rgba(31,92,64,.55)',  rim: '#2f7a4e', text: '#7fe0ae' },
+  { kind: 'dmg',   amount: 5,   label: '-5',  color: 'rgba(107,74,28,.55)', rim: '#9a6b28', text: '#ffcf7d' },
+  { kind: 'dmg',   amount: 10,  label: '-10', color: 'rgba(122,56,24,.55)', rim: '#a04d2a', text: '#ffb27d' },
+  { kind: 'dmg',   amount: 5,   label: '-5',  color: 'rgba(107,74,28,.55)', rim: '#9a6b28', text: '#ffcf7d' },
+  { kind: 'recycle',            label: '↺',   color: 'rgba(31,92,64,.55)',  rim: '#2f7a4e', text: '#7fe0ae' },
+  { kind: 'coin',  amount: 1,   label: '+🪙',  color: 'rgba(122,96,20,.55)', rim: '#c9a227', text: '#ffd35c' },
+  { kind: 'dmg',   amount: 20,  label: '-20', color: 'rgba(107,36,36,.55)', rim: '#a03636', text: '#ff9d8a' },
+];
+const BASKET_H = 46;
+const basketTop = () => H - 170;
+
+// portal stock counts are PAIRS — one draw places both mouths.
+// laser stock counts DRAWS: the first laser draw of a run is a pair, later ones are singles.
+const DEFAULT_STOCK = { laser: 2, sonic: 2, gunner: 2, vacuum: 2, portal: 2, sniper: 2, fan: 2, flipper: 2 };
+const STOCK_ORDER = ['laser', 'sonic', 'gunner', 'vacuum', 'portal', 'sniper', 'fan', 'flipper'];
+const UNIT_META = {
+  laser:   ['🔺', 'Laser'],   sonic: ['💥', 'Sonic'],  gunner: ['🔫', 'Gunner'],
+  vacuum:  ['🌀', 'Vacuum'],  portal: ['🕳️', 'Portal'], sniper: ['🎯', 'Sniper'],
+  fan:     ['🌬️', 'Fan'],     flipper: ['🏓', 'Flipper'],
+};
+let stock = { ...DEFAULT_STOCK };   // deck contents for this level
+
+const PORTAL_COLORS = ['#4dd7ff', '#ff6ad5', '#9dff57', '#ffb84d'];   // one color per pair
+const PORTAL_CD = 0.5;
+const SNIPER_SPEED = 950;
+const SNIPER_KNOCK = 320;
+const FLIP_REST = 0.6, FLIP_UP = -0.75;   // arm angle, rad (y-down; rest droops, flips up)
+
+// slider spec: [key, label, min, max, step, group]
+const SLIDERS = [
+  ['playerHp',    'Player HP',      50,  1000, 10,   'game'],
+  ['waveSize',    'Wave 1 size',    5,   200,  5,    'game'],
+  ['drawsW1',     'Draws wave 1',   1,   10,   1,    'game'],
+  ['drawsPW',     'Draws / wave',   0,   6,    1,    'game'],
+  ['coinsPW',     'Coins / wave',   0,   100,  5,    'game'],
+  ['coinsKill',   'Coins / kill',   0,   5,    1,    'game'],
+  ['recycleToll', 'Recycle toll',   0,   25,   1,    'game'],
+  ['waveTimeout', 'Stall timeout s',0,   120,  5,    'game'],
+  ['gravity',     'Gravity',        200, 4000, 20,   'physics'],
+  ['restitution', 'Restitution',    0,   0.98, 0.01, 'physics'],
+  ['damping',     'Air damping',    0,   2,    0.01, 'physics'],
+  ['minMass',     'Min mass (dying)',0.1, 1,   0.05, 'physics'],
+  ['pegRadius',   'Peg radius',     2,   16,   0.5,  'board'],
+  ['spacingX',    'Peg spacing X',  24,  90,   1,    'board'],
+  ['spacingY',    'Peg spacing Y',  24,  100,  1,    'board'],
+  ['ballRadius',  'Ball radius',    3,   16,   0.5,  'balls'],
+  ['spawnRate',   'Spawn rate /s',  0,   10,   0.05, 'balls'],
+  ['ballHp',      'Ball HP (w1)',   10,  400,  5,    'balls'],
+  ['specialFrac', 'Special %',      0,   0.6,  0.02, 'balls'],
+  ['launchVx',    'Launch speed',   0,   600,  10,   'balls'],
+  ['cap',         'Ball cap',       10,  400,  5,    'balls'],
+  ['laserDps',    'Laser DPS',      0,   400,  5,    'laser'],
+  ['sonicRadius', 'Field radius',   40,  240,  5,    'sonic'],
+  ['sonicDps',    'Field DPS',      0,   150,  1,    'sonic'],
+  ['sonicPush',   'Field push',     0,   1500, 10,   'sonic'],
+  ['gunRange',    'Range',          60,  300,  5,    'gunner'],
+  ['gunDmg',      'Bullet damage',  0,   80,   1,    'gunner'],
+  ['gunRate',     'Fire rate /s',   0.5, 8,    0.1,  'gunner'],
+  ['gunKnock',    'Bullet knock',   0,   600,  10,   'gunner'],
+  ['bulletSpeed', 'Bullet speed',   300, 1500, 10,   'gunner'],
+  ['snipRange',   'Range',          100, 420,  10,   'sniper'],
+  ['snipDmg',     'Shot damage',    0,   200,  5,    'sniper'],
+  ['snipRate',    'Fire rate /s',   0.1, 2,    0.05, 'sniper'],
+  ['vacRadius',   'Suction radius', 40,  240,  5,    'vacuum'],
+  ['vacPull',     'Suction pull',   0,   2000, 10,   'vacuum'],
+  ['vacDps',      'Core DPS',       0,   150,  5,    'vacuum'],
+  ['portalRadius','Capture radius', 10,  40,   1,    'portal'],
+  ['fanWidth',    'Wind width',     30,  160,  5,    'fan'],
+  ['fanReach',    'Wind reach',     80,  500,  10,   'fan'],
+  ['fanForce',    'Wind force',     0,   2500, 25,   'fan'],
+  ['flipLen',     'Arm length',     30,  90,   2,    'flipper'],
+  ['flipStr',     'Flip speed',     8,   40,   1,    'flipper'],
+  ['sweepSpeed',  'Sweeper speed',  0,   900,  10,   'sweeper'],
+  ['sweepImpulse','Sweeper impulse',0,   1200, 10,   'sweeper'],
+  ['sweepY',      'Sweeper Y',      0.1, 0.95, 0.01, 'sweeper'],
+];
+
+// short keys for the URL hash
+const HASH_KEYS = {
+  gravity:'g', restitution:'e', damping:'d', ballRadius:'br', pegRadius:'pr',
+  spacingX:'sx', spacingY:'sy', spawnRate:'rate', spawnMode:'sm', ballHp:'hp',
+  laserDps:'dps', sonicRadius:'sr', sonicDps:'sd', sonicPush:'sp',
+  gunRange:'gr', gunDmg:'gd', gunRate:'gq', gunKnock:'gk', bulletSpeed:'bs',
+  vacRadius:'vr', vacPull:'vp', vacDps:'vd',
+  portalRadius:'ptr', snipRange:'nr', snipDmg:'nd', snipRate:'nq',
+  fanWidth:'fw', fanReach:'fh', fanForce:'ff', flipLen:'fl', flipStr:'fst',
+  sweepSpeed:'ss', sweepImpulse:'si', sweepY:'syf', cap:'cap', juice:'j', seed:'seed',
+  playerHp:'php', waveSize:'wv', minMass:'mm', holeFrac:'hf', holeSeed:'hs',
+  drawsW1:'dw1', drawsPW:'dpw', coinsPW:'cpw', coinsKill:'ck', ballCol:'bc', heatmap:'hm',
+  recycleToll:'rt', waveTimeout:'wt', specialFrac:'spf', launchVx:'lvx',
+};
+
+const cfg = { ...DEFAULTS };
+let pendingUnitsHash = '';
+
+/* ------- URL hash <-> config ------- */
+function readHash() {
+  const h = location.hash.replace(/^#/, '');
+  if (!h) return;
+  const byShort = Object.fromEntries(Object.entries(HASH_KEYS).map(([k, s]) => [s, k]));
+  for (const part of h.split('&')) {
+    const [k, v] = part.split('=');
+    if (k === 'u') { pendingUnitsHash = v || ''; continue; }
+    if (k === 'inv' && v && v.length === STOCK_ORDER.length && /^\d+$/.test(v)) {
+      STOCK_ORDER.forEach((t, i) => { stock[t] = +v[i]; });
+      continue;
+    }
+    const key = byShort[k];
+    if (key !== undefined && v !== undefined && isFinite(+v)) cfg[key] = +v;
+  }
+}
+function unitsToHash() {
+  const t = [];
+  for (const l of units.lasers)   t.push('L' + l.p);
+  for (const s of units.sonics)   t.push('S' + s.p);
+  for (const g of units.gunners)  t.push('G' + g.p);
+  for (const v of units.vacuums)  t.push('V' + v.p);
+  for (const pt of units.portals) t.push('P' + pt.a + '-' + pt.b);
+  for (const s of units.snipers)  t.push('N' + s.p);
+  for (const f of units.fans)     t.push('F' + f.p);
+  for (const f of units.flippers) t.push('W' + f.p);
+  return t.join('.');
+}
+let hashTimer = 0;
+function writeHash() {
+  clearTimeout(hashTimer);
+  hashTimer = setTimeout(() => {
+    const parts = [];
+    for (const [k, s] of Object.entries(HASH_KEYS)) {
+      const v = cfg[k];
+      parts.push(s + '=' + (Number.isInteger(v) ? v : +v.toFixed(3)));
+    }
+    parts.push('inv=' + STOCK_ORDER.map(t => Math.min(9, Math.max(0, stock[t]))).join(''));
+    const u = unitsToHash();
+    if (u) parts.push('u=' + u);
+    history.replaceState(null, '', '#' + parts.join('&'));
+  }, 150);
+}
+
+/* ============================== SEEDED RNG ============================== */
+let rngState = 0;
+function srand(seed) { rngState = seed >>> 0; }
+function rand() {
+  rngState = (rngState + 0x6D2B79F5) >>> 0;
+  let t = rngState;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+// separate stream for deck ops, so draft choices never perturb ball spawns
+let deckRngState = 0;
+function deckRand() {
+  deckRngState = (deckRngState + 0x6D2B79F5) >>> 0;
+  let t = deckRngState;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
+/* ============================== WORLD ============================== */
+
+const canvas = document.getElementById('stage');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+
+let W = 0, H = 0, DPR = 1;
+let pegs = [];
+let pegRows = [];
+let pegTop = 0;
+let rowSpaceY = 48;       // actual vertical row pitch (drives the peg broadphase)
+let activeLayout = null;  // ASCII board override; null = procedural grid
+                          // map chars: 'o' peg · 'B' bumper · '*' build socket · '/' '\' walls
+let walls = [];           // static angled capsules {x1,y1,x2,y2} from layout ramps
+let hasSockets = false;   // socketed board: units may only be built on '*' spots
+const BUMPER_KICK = 340;  // extra speed a bumper peg adds on contact
+const balls = [];
+const bullets = [];      // {x,y,vx,vy,life,dmg,knock,r,color}
+const particles = [];
+const flashes = [];
+const rings = [];
+const floaters = [];
+let sweeper = { x: 0, px: 0, dir: 1, w: 92, h: 14 };
+let spawnAcc = 0;
+let quotaDoneT = -1;     // simT when the wave finished spawning (drives the stall timeout)
+let simT = 0;
+let shake = 0;
+let popCount = 0;
+let running = false;
+let playerHp = DEFAULTS.playerHp;
+let spawnedCount = 0;
+let result = null;       // null | 'cleared' | 'lose'
+let hpHitT = -9;
+
+// run/meta state
+let waveNum = 1;
+let coins = 0;
+let deck = [];           // shuffled unit types (from stock, minus already-placed)
+let drawOptions = [];    // the 2 cards currently offered (1 when the deck runs thin)
+let chosen = 0;          // which offered card is selected
+let draftOpen = false;   // the centered pick-a-card popup
+let drawsAvail = 0;
+let mode = 'sandbox';    // 'sandbox' (endless waves) | 'campaign' (3 levels × 3 waves)
+let levelNum = 1;
+let levelStartCoins = 0; // what Reset restores mid-campaign
+
+// traffic heatmap: heatCur accumulates ball-presence time during a wave;
+// on wave end it snapshots to heatLast, which renders between waves
+const HEAT_CELL = 24;
+let heatCols = 0, heatRows = 0, heatMax = 0;
+let heatCur = new Float32Array(0), heatLast = new Float32Array(0);
+const colGrid = new Map();   // ball-ball collision broadphase, reused each step
+
+function snapshotHeat() {
+  heatLast.set(heatCur);
+  heatMax = 0;
+  for (let i = 0; i < heatLast.length; i++) if (heatLast[i] > heatMax) heatMax = heatLast[i];
+  heatCur.fill(0);
+}
+
+// placed units — all carry lvl (0 = base); upgrades multiply stats
+const units = {
+  lasers:   [],   // {p, lvl} — every pair of emitters carries a beam
+  sonics:   [],   // {p, rip, lvl}
+  gunners:  [],   // {p, cd, aim, lvl}
+  vacuums:  [],   // {p, rip, lvl}
+  portals:  [],   // {a, b} — not upgradable
+  snipers:  [],   // {p, cd, aim, lvl}
+  fans:     [],   // {p, lvl}
+  flippers: [],   // {p, dir, ang, angVel, phase, cd, lvl}
+};
+const sel = { pendingPeg: -1 };   // first mouth of a portal being placed
+
+const lvlMult = (u) => 1 + UPGRADE_BOOST * (u.lvl || 0);
+const waveTarget = () => Math.round(cfg.waveSize * (1 + WAVE_SIZE_GROWTH * (waveNum - 1)));
+const waveBallHp = () => Math.round(cfg.ballHp * (1 + WAVE_HP_GROWTH * (waveNum - 1)));
+const currentDraw = () => (drawsAvail > 0 && drawOptions.length) ? drawOptions[chosen] : null;
+
+function usedCount() {
+  // laser draws consumed: first draw placed 2 emitters, later draws 1 each
+  const e = units.lasers.length;
+  return {
+    laser: e === 0 ? 0 : e === 1 ? 1 : e - 1,
+    sonic: units.sonics.length, gunner: units.gunners.length,
+    vacuum: units.vacuums.length, portal: units.portals.length, sniper: units.snipers.length,
+    fan: units.fans.length, flipper: units.flippers.length,
+  };
+}
+function stockLeft(t) { return stock[t] - usedCount()[t]; }
+
+function buildDeck() {
+  deck = [];
+  const used = usedCount();
+  for (const t of STOCK_ORDER) for (let i = used[t]; i < stock[t]; i++) deck.push(t);
+  for (let i = deck.length - 1; i > 0; i--) {           // seeded shuffle (deck stream)
+    const j = Math.floor(deckRand() * (i + 1));
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  drawOptions = [];
+  chosen = 0;
+}
+
+// deal up to 2 DIFFERENT cards to choose between (single card if the deck can't differ)
+function refillOptions() {
+  if (drawsAvail <= 0) { drawOptions = []; return; }
+  drawOptions = [];
+  if (deck.length) drawOptions.push(deck.shift());
+  if (deck.length) {
+    const idx = deck.findIndex(t => t !== drawOptions[0]);
+    if (idx >= 0) drawOptions.push(deck.splice(idx, 1)[0]);
+  }
+  chosen = 0;
+  if (drawOptions.length) draftOpen = true;
+}
+
+// commit the chosen card; the unpicked one shuffles back into the deck
+function consumeDraw() {
+  const other = drawOptions[1 - chosen];
+  drawOptions = [];
+  if (other !== undefined) deck.splice(Math.floor(deckRand() * (deck.length + 1)), 0, other);
+  drawsAvail--;
+  refillOptions();
+}
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width  = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  heatCols = Math.ceil(W / HEAT_CELL);
+  heatRows = Math.ceil(H / HEAT_CELL);
+  heatCur = new Float32Array(heatCols * heatRows);
+  heatLast = new Float32Array(heatCols * heatRows);
+  heatMax = 0;
+  buildPegs();
+}
+
+function buildPegs() {
+  pegs = []; pegRows = [];
+  const margX = 18, top = 104, bottom = H - 190;
+  pegTop = top;
+  walls = [];
+  if (activeLayout) {
+    // designed board: ASCII map spread over the play field
+    const nRows = activeLayout.length;
+    const maxCols = Math.max(...activeLayout.map(r => r.length));
+    rowSpaceY = (bottom - top) / Math.max(1, nRows - 1);
+    const colSpace = (W - margX * 2) / Math.max(1, maxCols - 1);
+    const half = Math.min(colSpace, rowSpaceY) * 0.72;   // ramp half-length
+    for (let r = 0; r < nRows; r++) {
+      const line = activeLayout[r], rowArr = [];
+      for (let c = 0; c < line.length; c++) {
+        const ch = line[c];
+        const x = margX + c * colSpace, y = top + r * rowSpaceY;
+        if (ch === 'o' || ch === 'B' || ch === '*') {
+          const peg = { x, y, row: r, col: c, bumper: ch === 'B', socket: ch === '*', built: false };
+          pegs.push(peg); rowArr.push(peg);
+        } else if (ch === '/') {
+          walls.push({ x1: x - half, y1: y + half, x2: x + half, y2: y - half });
+        } else if (ch === '\\') {
+          walls.push({ x1: x - half, y1: y - half, x2: x + half, y2: y + half });
+        }
+      }
+      pegRows.push(rowArr);
+    }
+    finishPegs();
+    return;
+  }
+  const sx = cfg.spacingX, sy = cfg.spacingY;
+  rowSpaceY = sy;
+  const rows = Math.max(1, Math.floor((bottom - top) / sy) + 1);
+  for (let r = 0; r < rows; r++) {
+    const offset = (r % 2) ? sx / 2 : 0;
+    const rowArr = [];
+    const usable = W - margX * 2 - offset;
+    const cols = Math.floor(usable / sx) + 1;
+    for (let c = 0; c < cols; c++) {
+      const x = margX + offset + c * sx;
+      if (x > W - margX) continue;
+      if (cfg.holeFrac > 0) {
+        let hsh = (r * 7349 + c * 15161 + (cfg.holeSeed | 0) * 2971) >>> 0;
+        hsh = Math.imul(hsh ^ (hsh >>> 13), 0x5bd1e995) >>> 0;
+        if ((hsh & 0xffff) / 0x10000 < cfg.holeFrac) continue;
+      }
+      const peg = { x, y: top + r * sy, row: r, col: c };
+      pegs.push(peg); rowArr.push(peg);
+    }
+    pegRows.push(rowArr);
+  }
+  finishPegs();
+}
+
+function finishPegs() {
+  const n = pegs.length;
+  units.lasers   = units.lasers.filter(l => l.p < n);
+  units.sonics   = units.sonics.filter(s => s.p < n);
+  units.gunners  = units.gunners.filter(g => g.p < n);
+  units.vacuums  = units.vacuums.filter(v => v.p < n);
+  units.portals  = units.portals.filter(pt => pt.a < n && pt.b < n);
+  units.snipers  = units.snipers.filter(s => s.p < n);
+  units.fans     = units.fans.filter(f => f.p < n);
+  units.flippers = units.flippers.filter(f => f.p < n);
+  hasSockets = pegs.some(p => p.socket);
+  syncBuiltFlags();
+  writeHash();
+}
+
+// an empty socket is a ghost (no collision); a built one acts as a peg
+function syncBuiltFlags() {
+  for (const p of pegs) p.built = false;
+  const mark = (i) => { if (pegs[i]) pegs[i].built = true; };
+  for (const l of units.lasers)   mark(l.p);
+  for (const s of units.sonics)   mark(s.p);
+  for (const g of units.gunners)  mark(g.p);
+  for (const v of units.vacuums)  mark(v.p);
+  for (const s of units.snipers)  mark(s.p);
+  for (const f of units.fans)     mark(f.p);
+  for (const f of units.flippers) mark(f.p);
+  for (const pt of units.portals) { mark(pt.a); mark(pt.b); }
+}
+
+function applyUnitsFromHash() {
+  if (!pendingUnitsHash) return;
+  const n = pegs.length;
+  const okIdx = (p) => Number.isInteger(p) && p >= 0 && p < n;
+  for (const tok of pendingUnitsHash.split('.')) {
+    const kind = tok[0];
+    if (kind === 'P') {
+      const [a, b] = tok.slice(1).split('-').map(Number);
+      if (okIdx(a) && okIdx(b) && a !== b && stockLeft('portal') > 0) units.portals.push({ a, b });
+      continue;
+    }
+    const p = +tok.slice(1);
+    if (!okIdx(p)) continue;
+    if      (kind === 'L' && stockLeft('laser')  > 0) units.lasers.push({ p, lvl: 0 });
+    else if (kind === 'S' && stockLeft('sonic')  > 0) units.sonics.push({ p, rip: 0, lvl: 0 });
+    else if (kind === 'G' && stockLeft('gunner') > 0) units.gunners.push({ p, cd: 0, aim: -Math.PI / 2, lvl: 0 });
+    else if (kind === 'V' && stockLeft('vacuum') > 0) units.vacuums.push({ p, rip: 0, lvl: 0 });
+    else if (kind === 'N' && stockLeft('sniper') > 0) units.snipers.push({ p, cd: 0, aim: -Math.PI / 2, lvl: 0 });
+    else if (kind === 'F' && stockLeft('fan')    > 0) units.fans.push({ p, lvl: 0 });
+    else if (kind === 'W' && stockLeft('flipper') > 0) units.flippers.push(newFlipper(p));
+  }
+  pendingUnitsHash = '';
+  syncBuiltFlags();
+}
+
+function newFlipper(p) {
+  const peg = pegs[p];
+  return { p, dir: peg && peg.x >= W / 2 ? -1 : 1, ang: FLIP_REST, angVel: 0, phase: 'idle', cd: 0, lvl: 0 };
+}
+
+function clearUnits() {
+  for (const k of Object.keys(units)) units[k].length = 0;
+  sel.pendingPeg = -1;
+  syncBuiltFlags();
+}
+
+// full run restart (keepPlaced=true only at boot, to honor a shared layout URL)
+function reset(keepPlaced) {
+  balls.length = 0; bullets.length = 0; particles.length = 0; flashes.length = 0; rings.length = 0;
+  floaters.length = 0;
+  spawnAcc = 0; simT = 0; shake = 0; popCount = 0;
+  quotaDoneT = -1;
+  running = false;
+  playerHp = cfg.playerHp;
+  spawnedCount = 0;
+  result = null;
+  hpHitT = -9;
+  waveNum = 1;
+  coins = 0;
+  heatCur.fill(0); heatLast.fill(0); heatMax = 0;
+  if (!keepPlaced) clearUnits();
+  srand(cfg.seed);
+  deckRngState = (cfg.seed ^ 0x5bf03635) >>> 0;
+  buildDeck();
+  drawsAvail = Math.min(cfg.drawsW1, deck.length);
+  refillOptions();
+  sweeper.x = sweeper.px = W / 2;
+  sweeper.dir = 1;
+  for (const s of units.sonics)   s.rip = 0;
+  for (const v of units.vacuums)  v.rip = 0;
+  for (const g of units.gunners)  { g.cd = 0; g.aim = -Math.PI / 2; }
+  for (const s of units.snipers)  { s.cd = 0; s.aim = -Math.PI / 2; }
+  for (const f of units.flippers) { f.ang = FLIP_REST; f.angVel = 0; f.phase = 'idle'; f.cd = 0; }
+  updateDrawCard();
+}
+
+function startLevel() {
+  if (result === 'champion') { startCampaign(); return; }
+  if (result === 'lose') {                       // dead run: back to wave-1 setup
+    const restore = mode === 'campaign' ? levelStartCoins : 0;
+    reset();
+    coins = restore;
+    return;
+  }
+  if (running) return;
+  result = null;
+  running = true;
+}
+
+// apply a campaign level: its board, wave params, and deck
+function loadLevel(n) {
+  const lv = LEVELS[n - 1];
+  Object.assign(cfg, lv.cfg);
+  stock = { ...lv.stock };
+  activeLayout = lv.layout || null;
+  clearUnits();
+  buildPegs();
+  syncSliders();
+  syncMisc();
+  const carry = n > 1 ? coins : 0;   // coins carry across levels; HP refills
+  reset();
+  coins = carry;
+  levelStartCoins = carry;
+  updateDrawCard();
+  writeHash();
+}
+
+function startCampaign() {
+  mode = 'campaign';
+  levelNum = 1;
+  coins = 0;
+  loadLevel(1);
+}
+
+// 🎲 random level: new layout + a limited random deck (some types excluded)
+function randomizeLevel() {
+  const R01 = Math.random;
+  const pick = (min, max, step = 1) => Math.round((min + R01() * (max - min)) / step) * step;
+  cfg.seed      = 1 + Math.floor(R01() * 999999);
+  cfg.spacingX  = pick(34, 70);
+  cfg.spacingY  = pick(38, 80);
+  cfg.pegRadius = pick(3, 8, 0.5);
+  cfg.holeFrac  = R01() < 0.45 ? 0 : +(0.05 + R01() * 0.25).toFixed(2);
+  cfg.holeSeed  = 1 + Math.floor(R01() * 99999);
+  cfg.sweepY    = +(0.5 + R01() * 0.4).toFixed(2);
+  cfg.sweepSpeed = pick(120, 420, 10);
+  cfg.spawnRate = pick(1.5, 4, 0.25);
+  cfg.waveSize  = pick(15, 40, 5);
+  cfg.ballHp    = pick(40, 80, 5);
+  for (const t of STOCK_ORDER) stock[t] = 0;
+  const kept = [...STOCK_ORDER].sort(() => R01() - 0.5).slice(0, 3 + Math.floor(R01() * 3));
+  for (const t of kept) stock[t] = 1 + Math.floor(R01() * 3);
+  const DMG = ['laser', 'sonic', 'gunner', 'sniper'];
+  if (!DMG.some(t => stock[t] > 0)) stock[DMG[Math.floor(R01() * DMG.length)]] = 1 + Math.floor(R01() * 2);
+  mode = 'sandbox';
+  activeLayout = null;
+  clearUnits();
+  buildPegs();
+  syncSliders();
+  syncMisc();
+  reset();
+  writeHash();
+}
+
+// 🧹 back to the default sandbox: default config, full deck, no holes
+function defaultLevel() {
+  const keepSeed = cfg.seed;
+  Object.assign(cfg, DEFAULTS);
+  cfg.seed = keepSeed;
+  stock = { ...DEFAULT_STOCK };
+  mode = 'sandbox';
+  activeLayout = null;
+  clearUnits();
+  buildPegs();
+  syncSliders();
+  syncMisc();
+  reset();
+  writeHash();
+}
+
+function spawnBall(fromWave) {
+  if (balls.length >= cfg.cap) return;
+  if (fromWave) spawnedCount++;
+  // type roll (seeded): mostly basic, specialFrac split evenly between tank and tiny
+  const roll = rand();
+  const type = roll < cfg.specialFrac / 2 ? 'tank' : roll < cfg.specialFrac ? 'tiny' : 'basic';
+  const T = BALL_TYPES[type];
+  const r = cfg.ballRadius * T.rad;
+  const hp = Math.max(6, Math.round((fromWave ? waveBallHp() : cfg.ballHp) * T.hp));
+  const x = cfg.spawnMode === 1
+    ? 20 + r + rand() * (W - 40 - r * 2)
+    : W / 2 + (rand() - 0.5) * 4;
+  balls.push({
+    type, radMul: T.rad, massMul: T.mass, fallMul: T.fall, restMul: T.rest,
+    x, y: -r * 2, px: x, py: -r * 2,
+    vx: (rand() * 2 - 1) * cfg.launchVx, vy: 0,   // launcher: enter moving sideways
+    hp, maxHp: hp,
+    squash: 0, sqx: 1, sqy: 0,
+    trail: [], lastSweepHit: -1, lastPort: -1, lastFlipHit: -1,
+  });
+}
+
+/* ============================== PHYSICS (fixed 60 Hz) ============================== */
+
+const DT = 1 / 60;
+
+function distToSegSq(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy || 1;
+  let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const cx = ax + t * dx, cy = ay + t * dy;
+  return (px - cx) * (px - cx) + (py - cy) * (py - cy);
+}
+
+const ballMass = (b) => (cfg.minMass + (1 - cfg.minMass) * Math.max(0, b.hp / b.maxHp)) * b.massMul;
+const ballRest = (b) => Math.min(0.95, cfg.restitution * b.restMul);
+const ballR    = (b) => cfg.ballRadius * b.radMul;
+
+function step() {
+  simT += DT;
+
+  // spawn — only while running, until the wave quota is out
+  if (running && cfg.spawnRate > 0 && spawnedCount < waveTarget()) {
+    spawnAcc += DT * cfg.spawnRate;
+    while (spawnAcc >= 1 && spawnedCount < waveTarget()) { spawnAcc -= 1; spawnBall(true); }
+    if (spawnedCount >= waveTarget()) quotaDoneT = simT;
+  }
+
+  // sweeper motion
+  const sw = sweeper;
+  sw.px = sw.x;
+  sw.x += sw.dir * cfg.sweepSpeed * DT;
+  const halfW = sw.w / 2;
+  if (sw.x < halfW)      { sw.x = halfW;      sw.dir = 1; }
+  if (sw.x > W - halfW)  { sw.x = W - halfW;  sw.dir = -1; }
+  const swY = H * cfg.sweepY;
+
+  // flipper state machines (angles update before ball collisions)
+  for (const f of units.flippers) {
+    const peg = pegs[f.p];
+    f.angVel = 0;
+    if (!peg) continue;
+    f.cd -= DT;
+    if (f.phase === 'idle') {
+      f.ang = FLIP_REST;
+      if (f.cd <= 0) {
+        const trig = cfg.flipLen * lvlMult(f) + 26;
+        for (const b of balls) {
+          const dx = b.x - peg.x, dy = b.y - peg.y;
+          if (dx * dx + dy * dy < trig * trig && dy > -cfg.flipLen * 0.5 && dx * f.dir > -10) {
+            f.phase = 'flip';
+            break;
+          }
+        }
+      }
+    } else if (f.phase === 'flip') {
+      f.angVel = -cfg.flipStr;
+      f.ang += f.angVel * DT;
+      if (f.ang <= FLIP_UP) { f.ang = FLIP_UP; f.phase = 'return'; f.angVel = 0; }
+    } else {                       // return
+      f.angVel = 6;
+      f.ang += f.angVel * DT;
+      if (f.ang >= FLIP_REST) { f.ang = FLIP_REST; f.phase = 'idle'; f.cd = 0.4; f.angVel = 0; }
+    }
+  }
+
+  // live laser beams — every pair of emitters; upgrade mult = avg of the two emitters.
+  // emitter NODES are hot too: touching one burns like touching the beam.
+  const beams = [];
+  const emNodes = [];
+  if (cfg.laserDps > 0) {
+    for (let i = 0; i < units.lasers.length; i++) {
+      const pi2 = pegs[units.lasers[i].p];
+      if (pi2) emNodes.push([pi2, lvlMult(units.lasers[i])]);
+      for (let j = i + 1; j < units.lasers.length; j++) {
+        const la = pegs[units.lasers[i].p], lb = pegs[units.lasers[j].p];
+        if (!la || !lb) continue;
+        beams.push([la, lb, 1 + UPGRADE_BOOST * ((units.lasers[i].lvl + units.lasers[j].lvl) / 2)]);
+      }
+    }
+  }
+
+  const R = cfg.ballRadius;
+
+  for (let i = balls.length - 1; i >= 0; i--) {
+    const b = balls[i];
+    b.px = b.x; b.py = b.y;
+    const m = ballMass(b);      // damaged balls are lighter: fall slower, get flung harder
+    const br = ballR(b);        // per-type radius
+    const rest = ballRest(b);   // per-type bounciness
+
+    // substep fast balls so they can't tunnel through pegs in open chutes
+    const spd = Math.hypot(b.vx, b.vy);
+    const sub = Math.min(4, Math.max(1, Math.ceil(spd * DT / 8)));
+    const h = DT / sub;
+    const dampH = Math.exp(-cfg.damping * h);
+    for (let s = 0; s < sub; s++) {
+      b.vy += cfg.gravity * m * b.fallMul * h;
+      b.vx *= dampH; b.vy *= dampH;
+      b.x += b.vx * h;
+      b.y += b.vy * h;
+
+      // walls
+      if (b.x < br)     { b.x = br;     if (b.vx < 0) { b.vx = -b.vx * rest; onImpact(b, Math.abs(b.vx)); } }
+      if (b.x > W - br) { b.x = W - br; if (b.vx > 0) { b.vx = -b.vx * rest; onImpact(b, Math.abs(b.vx)); } }
+
+      // pegs — broadphase by grid row
+      const ri = Math.round((b.y - pegTop) / rowSpaceY);
+      const reach = br + cfg.pegRadius;
+      for (let rr = ri - 1; rr <= ri + 1; rr++) {
+        const row = pegRows[rr];
+        if (!row) continue;
+        for (let p = 0; p < row.length; p++) {
+          const peg = row[p];
+          if (peg.socket && !peg.built) continue;   // empty sockets are intangible
+          const dx = b.x - peg.x, dy = b.y - peg.y;
+          if (Math.abs(dx) > reach || Math.abs(dy) > reach) continue;
+          const d2 = dx * dx + dy * dy;
+          if (d2 >= reach * reach || d2 === 0) continue;
+          const d = Math.sqrt(d2), nx = dx / d, ny = dy / d;
+          b.x = peg.x + nx * reach;
+          b.y = peg.y + ny * reach;
+          const vn = b.vx * nx + b.vy * ny;
+          if (vn < 0) {
+            const j = -(1 + rest) * vn;
+            b.vx += j * nx; b.vy += j * ny;
+            onImpact(b, -vn, peg);
+            if (peg.bumper) {                   // bumper: active kick along the normal
+              const kick = BUMPER_KICK / m;
+              b.vx += nx * kick; b.vy += ny * kick;
+              flashes.push({ x: peg.x, y: peg.y, age: 0 });
+              if (cfg.juice) shake = Math.min(shake + 2, 8);
+            }
+          }
+        }
+      }
+
+      // angled walls — static capsules (checked per substep, so no tunneling)
+      for (const wl of walls) {
+        const wx = wl.x2 - wl.x1, wy = wl.y2 - wl.y1;
+        const len2 = wx * wx + wy * wy || 1;
+        let t = ((b.x - wl.x1) * wx + (b.y - wl.y1) * wy) / len2;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const cx = wl.x1 + wx * t, cy = wl.y1 + wy * t;
+        const dx = b.x - cx, dy = b.y - cy;
+        const rr = br + 5;
+        const d2 = dx * dx + dy * dy;
+        if (d2 >= rr * rr) continue;
+        let nx, ny;
+        if (d2 > 1e-6) { const d = Math.sqrt(d2); nx = dx / d; ny = dy / d; }
+        else { nx = 0; ny = -1; }
+        b.x = cx + nx * rr; b.y = cy + ny * rr;
+        const vn = b.vx * nx + b.vy * ny;
+        if (vn < 0) {
+          const j = -(1 + rest) * vn;
+          b.vx += j * nx; b.vy += j * ny;
+          onImpact(b, -vn);
+        }
+      }
+    }
+
+    // portals — bi-directional teleport, checked before peg bounce
+    if (simT - b.lastPort > PORTAL_CD) {
+      const capR = Math.max(cfg.portalRadius, cfg.pegRadius + br + 2);
+      for (const pt of units.portals) {
+        const pa = pegs[pt.a], pb = pegs[pt.b];
+        if (!pa || !pb) continue;
+        let from = null, to = null;
+        if ((b.x - pa.x) ** 2 + (b.y - pa.y) ** 2 < capR * capR) { from = pa; to = pb; }
+        else if ((b.x - pb.x) ** 2 + (b.y - pb.y) ** 2 < capR * capR) { from = pb; to = pa; }
+        if (!from) continue;
+        const v = Math.hypot(b.vx, b.vy) || 1;
+        b.x = to.x + (b.vx / v) * (capR + br + 2);
+        b.y = to.y + (b.vy / v) * (capR + br + 2);
+        b.px = b.x; b.py = b.y;
+        b.lastPort = simT;
+        b.trail.length = 0;
+        flashes.push({ x: from.x, y: from.y, age: 0 }, { x: to.x, y: to.y, age: 0 });
+        if (cfg.juice) {
+          spawnParticles(from.x, from.y, 4, '#4dd7ff', 120);
+          spawnParticles(to.x, to.y, 4, '#4dd7ff', 120);
+        }
+        break;
+      }
+    }
+
+    // flippers — rotating capsule; the moving surface bats the ball (arm scales with level)
+    for (const f of units.flippers) {
+      const peg = pegs[f.p];
+      if (!peg) continue;
+      const L = cfg.flipLen * lvlMult(f);
+      const ux = f.dir * Math.cos(f.ang), uy = Math.sin(f.ang);
+      let s = (b.x - peg.x) * ux + (b.y - peg.y) * uy;
+      s = s < 0 ? 0 : s > L ? L : s;
+      const cx = peg.x + ux * s, cy = peg.y + uy * s;
+      const dx = b.x - cx, dy = b.y - cy;
+      const rr2 = br + 6;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < rr2 * rr2) {
+        let nx, ny;
+        if (d2 > 1e-6) { const d = Math.sqrt(d2); nx = dx / d; ny = dy / d; }
+        else { nx = 0; ny = -1; }
+        b.x = cx + nx * rr2; b.y = cy + ny * rr2;
+        // surface velocity of the rotating arm at contact
+        const svx = f.angVel * s * (-f.dir * Math.sin(f.ang));
+        const svy = f.angVel * s * Math.cos(f.ang);
+        const rvx = b.vx - svx, rvy = b.vy - svy;
+        const vn = rvx * nx + rvy * ny;
+        if (vn < 0) {
+          const j = -(1 + rest) * vn;
+          b.vx += j * nx; b.vy += j * ny;
+        }
+        if (f.phase === 'flip') {          // active flip: strong pop + a small sting
+          const lm = lvlMult(f);
+          b.vy -= 260 * lm / m;
+          b.vx += f.dir * 90 * lm / m;
+          if (simT - b.lastFlipHit > 0.25) {
+            b.lastFlipHit = simT;
+            b.hp -= 3 * lm;
+          }
+          onImpact(b, 500);
+          if (cfg.juice) shake = Math.min(shake + 2, 8);
+        }
+      }
+    }
+
+    // sweeper — circle vs AABB (bar is kinematic)
+    {
+      const cx = Math.max(sw.x - halfW, Math.min(b.x, sw.x + halfW));
+      const cy = Math.max(swY - sw.h / 2, Math.min(b.y, swY + sw.h / 2));
+      const dx = b.x - cx, dy = b.y - cy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < br * br) {
+        let nx, ny, d;
+        if (d2 > 1e-6) { d = Math.sqrt(d2); nx = dx / d; ny = dy / d; }
+        else { nx = 0; ny = b.y < swY ? -1 : 1; d = 0; }
+        b.x = cx + nx * br; b.y = cy + ny * br;
+        const barVx = sw.dir * cfg.sweepSpeed;
+        const rvx = b.vx - barVx, rvy = b.vy;
+        const vn = rvx * nx + rvy * ny;
+        if (vn < 0) {
+          const j = -(1 + rest) * vn;
+          b.vx += j * nx; b.vy += j * ny;
+        }
+        if (simT - b.lastSweepHit > 0.22) {
+          b.lastSweepHit = simT;
+          b.vx += sw.dir * cfg.sweepImpulse / m;
+          b.hp -= 4;
+          onImpact(b, cfg.sweepImpulse * 0.6);
+          if (cfg.juice) shake = Math.min(shake + 2.5, 8);
+        }
+      }
+    }
+
+    // laser damage — beams and hot emitter nodes
+    for (const [la, lb, bm] of beams) {
+      if (distToSegSq(b.x, b.y, la.x, la.y, lb.x, lb.y) < br * br) {
+        b.hp -= cfg.laserDps * bm * DT;
+        if (cfg.juice && Math.random() < 0.3) spawnParticles(b.x, b.y, 1, '#ff5d3d', 60);
+      }
+    }
+    for (const [np, nlm] of emNodes) {
+      const dx = b.x - np.x, dy = b.y - np.y;
+      const rr = br + cfg.pegRadius + 2.5;
+      if (dx * dx + dy * dy < rr * rr) {
+        b.hp -= cfg.laserDps * nlm * DT;
+        if (cfg.juice && Math.random() < 0.3) spawnParticles(b.x, b.y, 1, '#ff5d3d', 60);
+      }
+    }
+
+    // death
+    if (b.hp <= 0) { popBall(b); balls.splice(i, 1); continue; }
+
+    // baskets — equal bottom slices, left to right per BASKETS
+    if (b.y > basketTop() + BASKET_H * 0.4) {
+      const bi = Math.min(BASKETS.length - 1, Math.max(0, Math.floor(b.x / (W / BASKETS.length))));
+      const bk = BASKETS[bi];
+      if (bk.kind === 'recycle') {
+        // toll: recycling isn't free, so loops self-terminate
+        b.hp -= cfg.recycleToll;
+        if (b.hp <= 0) { popBall(b); balls.splice(i, 1); continue; }
+        floaters.push({ x: b.x, y: basketTop(),
+                        txt: cfg.recycleToll > 0 ? `↺-${cfg.recycleToll}` : '↺',
+                        color: bk.text, age: 0 });
+        b.y = -br * 2; b.py = b.y; b.px = b.x;
+        b.vy = 0; b.vx *= 0.3;
+        b.trail.length = 0;
+      } else if (bk.kind === 'coin') {
+        // pays out and eats the ball — no damage either way
+        coins += bk.amount;
+        floaters.push({ x: b.x, y: basketTop(), txt: `+${bk.amount}🪙`, color: bk.text, age: 0 });
+        spawnParticles(b.x, basketTop() + 8, 8, '#ffd35c', 160);
+        balls.splice(i, 1);
+        continue;
+      } else {
+        playerHp -= bk.amount;
+        hpHitT = simT;
+        floaters.push({ x: b.x, y: basketTop(), txt: '-' + bk.amount, color: bk.text, age: 0 });
+        spawnParticles(b.x, basketTop() + 8, 6, bk.text, 140);
+        if (cfg.juice) shake = Math.min(shake + (bk.amount >= 20 ? 4 : 2), 10);
+        balls.splice(i, 1);
+        continue;
+      }
+    }
+    if (b.y > H + br * 2) { balls.splice(i, 1); continue; }   // safety net
+
+    b.squash *= Math.exp(-10 * DT);
+    if (cfg.juice) {
+      b.trail.push(b.x, b.y);
+      if (b.trail.length > 14) b.trail.splice(0, 2);
+    } else if (b.trail.length) b.trail.length = 0;
+  }
+
+  // ball-ball collisions — spatial hash + mass-aware impulses (the pachinko braid)
+  if (cfg.ballCol && balls.length > 1) {
+    const cell = Math.max(16, cfg.ballRadius * 2.2 * 1.35);   // sized for the largest type
+    const cols = Math.ceil(W / cell) + 2;
+    colGrid.clear();
+    for (let i = 0; i < balls.length; i++) {
+      const b = balls[i];
+      const key = Math.floor(b.x / cell) + Math.floor(b.y / cell) * cols;
+      let arr = colGrid.get(key);
+      if (!arr) colGrid.set(key, arr = []);
+      arr.push(i);
+    }
+    for (let i = 0; i < balls.length; i++) {
+      const a = balls[i];
+      const cx = Math.floor(a.x / cell), cy = Math.floor(a.y / cell);
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          const arr = colGrid.get(cx + ox + (cy + oy) * cols);
+          if (!arr) continue;
+          for (let k = 0; k < arr.length; k++) {
+            const j = arr[k];
+            if (j <= i) continue;
+            const b2 = balls[j];
+            const dx = b2.x - a.x, dy = b2.y - a.y;
+            const d2 = dx * dx + dy * dy;
+            const sumR = ballR(a) + ballR(b2);
+            if (d2 >= sumR * sumR || d2 === 0) continue;
+            const d = Math.sqrt(d2), nx = dx / d, ny = dy / d;
+            const ma = ballMass(a), mb = ballMass(b2);
+            const tot = ma + mb;
+            const overlap = sumR - d;
+            a.x  -= nx * overlap * (mb / tot); a.y  -= ny * overlap * (mb / tot);
+            b2.x += nx * overlap * (ma / tot); b2.y += ny * overlap * (ma / tot);
+            const vn = (b2.vx - a.vx) * nx + (b2.vy - a.vy) * ny;
+            if (vn < 0) {
+              const e2 = (ballRest(a) + ballRest(b2)) / 2 * 0.8;
+              const jimp = -(1 + e2) * vn / (1 / ma + 1 / mb);
+              a.vx  -= jimp * nx / ma; a.vy  -= jimp * ny / ma;
+              b2.vx += jimp * nx / mb; b2.vy += jimp * ny / mb;
+              if (-vn > 300) { onImpact(a, -vn); onImpact(b2, -vn); }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // traffic heatmap: record ball presence while a wave runs
+  if (running) {
+    for (const b of balls) {
+      const hx = (b.x / HEAT_CELL) | 0, hy = (b.y / HEAT_CELL) | 0;
+      if (hx >= 0 && hx < heatCols && hy >= 0 && hy < heatRows) heatCur[hx + hy * heatCols] += DT;
+    }
+  }
+
+  // sonic booms — continuous force field (radius scales with level)
+  for (const s of units.sonics) {
+    const peg = pegs[s.p];
+    if (!peg) continue;
+    const lm = lvlMult(s);
+    const rad = cfg.sonicRadius * lm;
+    const R2 = rad * rad;
+    for (const b of balls) {
+      const dx = b.x - peg.x, dy = b.y - peg.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > R2) continue;
+      b.hp -= cfg.sonicDps * lm * DT;
+      const d = Math.sqrt(d2) || 1;
+      const fall = 1 - 0.6 * (d / rad);
+      const m = ballMass(b);
+      b.vx += (dx / d) * cfg.sonicPush * lm * fall * DT / m;
+      b.vy += (dy / d) * cfg.sonicPush * lm * fall * DT / m;
+    }
+    s.rip -= DT;
+    if (s.rip <= 0) {
+      s.rip = 0.55;
+      rings.push({ x: peg.x, y: peg.y, age: 0, R: rad });
+    }
+  }
+
+  // vacuums — suction field (no field damage); the CORE grinds balls that touch it
+  for (const v of units.vacuums) {
+    const peg = pegs[v.p];
+    if (!peg) continue;
+    const lm = lvlMult(v);
+    const rad = cfg.vacRadius * lm;
+    const R2 = rad * rad;
+    const coreR = Math.max(cfg.pegRadius + 3, 8);
+    for (const b of balls) {
+      const dx = peg.x - b.x, dy = peg.y - b.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > R2) continue;
+      const d = Math.sqrt(d2) || 1;
+      const fall = 1 - 0.6 * (d / rad);
+      const m = ballMass(b);
+      b.vx += (dx / d) * cfg.vacPull * lm * fall * DT / m;
+      b.vy += (dy / d) * cfg.vacPull * lm * fall * DT / m;
+      if (d < coreR + ballR(b)) {
+        b.hp -= cfg.vacDps * lm * DT;
+        if (cfg.juice && Math.random() < 0.25) spawnParticles(b.x, b.y, 1, '#5ee8cf', 60);
+      }
+    }
+    v.rip -= DT;
+    if (v.rip <= 0) {
+      v.rip = 0.55;
+      rings.push({ x: peg.x, y: peg.y, age: 0, R: rad, inward: true });
+    }
+  }
+
+  // fans — upward wind column (width + reach scale with level)
+  for (const f of units.fans) {
+    const peg = pegs[f.p];
+    if (!peg) continue;
+    const lm = lvlMult(f);
+    const reach = cfg.fanReach * lm;
+    const halfW2 = cfg.fanWidth * lm / 2;
+    for (const b of balls) {
+      const dy = peg.y - b.y;
+      if (dy < 0 || dy > reach) continue;
+      if (Math.abs(b.x - peg.x) > halfW2) continue;
+      b.vy -= cfg.fanForce * lm * (1 - dy / reach) * DT / ballMass(b);
+    }
+  }
+
+  // snipers — homing rounds (can't miss); prioritizes the ball most likely to
+  // land in a high-damage basket (basket damage of its column × how far down it is)
+  for (const s of units.snipers) {
+    s.cd -= DT;
+    const peg = pegs[s.p];
+    if (!peg) continue;
+    const lm = lvlMult(s);
+    let best = null, bestScore = -1;
+    const R2s = (cfg.snipRange * lm) ** 2;
+    const bt = basketTop();
+    for (const b of balls) {
+      const dx = b.x - peg.x, dy = b.y - peg.y;
+      if (dx * dx + dy * dy > R2s) continue;
+      const slot = Math.min(BASKETS.length - 1, Math.max(0, Math.floor(b.x / (W / BASKETS.length))));
+      const dmg = BASKETS[slot].amount || 0;
+      const depth = Math.max(0, Math.min(1, b.y / bt));
+      const score = dmg * (0.25 + 0.75 * depth) + depth * 0.01;   // depth breaks ties / recycle columns
+      if (score > bestScore) { bestScore = score; best = b; }
+    }
+    if (!best) continue;
+    s.aim = Math.atan2(best.y - peg.y, best.x - peg.x);
+    if (s.cd <= 0 && cfg.snipDmg > 0) {
+      s.cd = 1 / (cfg.snipRate * lm);
+      bullets.push({
+        x: peg.x + Math.cos(s.aim) * (cfg.pegRadius + 8),
+        y: peg.y + Math.sin(s.aim) * (cfg.pegRadius + 8),
+        vx: Math.cos(s.aim) * SNIPER_SPEED,
+        vy: Math.sin(s.aim) * SNIPER_SPEED,
+        life: 1.2, dmg: cfg.snipDmg * lm, knock: SNIPER_KNOCK * lm, r: 2.5, color: '#ff7d9a',
+        target: best,   // homing: re-steers onto this ball every step
+      });
+      flashes.push({ x: peg.x, y: peg.y, age: 0 });
+      if (cfg.juice) shake = Math.min(shake + 1.5, 8);
+    }
+  }
+
+  // gunners — lead-aimed bullet at nearest ball in range (upgrades boost every stat)
+  for (const g of units.gunners) {
+    g.cd -= DT;
+    const peg = pegs[g.p];
+    if (!peg) continue;
+    const lm = lvlMult(g);
+    let best = null, bestD2 = (cfg.gunRange * lm) ** 2;
+    for (const b of balls) {
+      const dx = b.x - peg.x, dy = b.y - peg.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) { bestD2 = d2; best = b; }
+    }
+    if (!best) continue;
+    const d = Math.sqrt(bestD2);
+    const lead = d / cfg.bulletSpeed * 0.9;
+    g.aim = Math.atan2(best.y + best.vy * lead - peg.y, best.x + best.vx * lead - peg.x);
+    if (g.cd <= 0 && cfg.gunDmg > 0) {
+      g.cd = 1 / (cfg.gunRate * lm);
+      bullets.push({
+        x: peg.x + Math.cos(g.aim) * (cfg.pegRadius + 5),
+        y: peg.y + Math.sin(g.aim) * (cfg.pegRadius + 5),
+        vx: Math.cos(g.aim) * cfg.bulletSpeed,
+        vy: Math.sin(g.aim) * cfg.bulletSpeed,
+        life: 0.9, dmg: cfg.gunDmg * lm, knock: cfg.gunKnock * lm, r: 3, color: '#ffd35c',
+      });
+      if (cfg.juice) flashes.push({ x: peg.x, y: peg.y, age: 0.1 });
+    }
+  }
+
+  // bullets
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const bu = bullets[i];
+    // homing rounds steer fully onto their target while it's still in play
+    if (bu.target) {
+      if (bu.target.hp > 0 && balls.includes(bu.target)) {
+        const dx = bu.target.x - bu.x, dy = bu.target.y - bu.y;
+        const d = Math.hypot(dx, dy) || 1;
+        bu.vx = (dx / d) * SNIPER_SPEED;
+        bu.vy = (dy / d) * SNIPER_SPEED;
+      } else {
+        bu.target = null;   // target gone: fly on straight
+      }
+    }
+    bu.x += bu.vx * DT; bu.y += bu.vy * DT;
+    bu.life -= DT;
+    let dead = bu.life <= 0 || bu.x < 0 || bu.x > W || bu.y < 0 || bu.y > H;
+    if (!dead) {
+      for (let j = balls.length - 1; j >= 0; j--) {
+        const b = balls[j];
+        const dx = b.x - bu.x, dy = b.y - bu.y;
+        const rr = ballR(b) + 3;
+        if (dx * dx + dy * dy < rr * rr) {
+          // sniper rounds never kill a full-HP ball outright (leave 1 HP)
+          let dmg = bu.dmg;
+          if (bu.target !== undefined && b.hp >= b.maxHp && dmg >= b.hp) dmg = Math.max(0, b.hp - 1);
+          b.hp -= dmg;
+          const m = ballMass(b);
+          const sp = Math.hypot(bu.vx, bu.vy) || 1;
+          b.vx += (bu.vx / sp) * bu.knock / m;
+          b.vy += (bu.vy / sp) * bu.knock / m;
+          onImpact(b, 260);
+          if (cfg.juice) spawnParticles(bu.x, bu.y, 3, bu.color, 120);
+          if (b.hp <= 0) { popBall(b); balls.splice(j, 1); }
+          dead = true;
+          break;
+        }
+      }
+    }
+    if (dead) bullets.splice(i, 1);
+  }
+
+  // cosmetics
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.vy += 900 * DT;
+    p.x += p.vx * DT; p.y += p.vy * DT;
+    p.life -= DT;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+  for (let i = flashes.length - 1; i >= 0; i--) {
+    flashes[i].age += DT;
+    if (flashes[i].age > 0.25) flashes.splice(i, 1);
+  }
+  for (let i = rings.length - 1; i >= 0; i--) {
+    rings[i].age += DT;
+    if (rings[i].age > 0.55) rings.splice(i, 1);
+  }
+  for (let i = floaters.length - 1; i >= 0; i--) {
+    floaters[i].age += DT;
+    if (floaters[i].age > 0.9) floaters.splice(i, 1);
+  }
+  shake *= Math.exp(-7 * DT);
+
+  // stall timeout: quota is spawned but stragglers won't die — pop them so the wave resolves
+  if (running && quotaDoneT >= 0 && cfg.waveTimeout > 0 && balls.length > 0 &&
+      simT - quotaDoneT > cfg.waveTimeout) {
+    for (let i = balls.length - 1; i >= 0; i--) { popBall(balls[i], true); }   // no kill bounty for stalls
+    balls.length = 0;
+  }
+
+  // wave resolution
+  if (running && playerHp <= 0) {
+    playerHp = 0;
+    running = false;
+    result = 'lose';
+    snapshotHeat();
+  }
+  if (running && spawnedCount >= waveTarget() && balls.length === 0) {
+    running = false;
+    snapshotHeat();
+    waveNum++;
+    if (mode === 'campaign' && waveNum > WAVES_PER_LEVEL) {
+      if (levelNum < LEVELS.length) {
+        levelNum++;
+        loadLevel(levelNum);     // new board + fresh deck; coins carry, HP refills
+        result = 'levelup';
+      } else {
+        result = 'champion';
+      }
+    } else {
+      coins += cfg.coinsPW;
+      const grant = Math.min(cfg.drawsPW, deck.length + drawOptions.length - drawsAvail);
+      if (grant > 0) drawsAvail += grant;
+      refillOptions();
+      spawnedCount = 0;
+      quotaDoneT = -1;
+      result = 'cleared';
+    }
+    updateDrawCard();
+  }
+}
+
+function onImpact(b, speed, peg) {
+  if (!cfg.juice) return;
+  if (speed > 120) {
+    b.squash = Math.min(1, speed / 900);
+    const v = Math.hypot(b.vx, b.vy) || 1;
+    b.sqx = b.vx / v; b.sqy = b.vy / v;
+  }
+  if (peg && speed > 260 && flashes.length < 40) flashes.push({ x: peg.x, y: peg.y, age: 0 });
+}
+
+function popBall(b, noReward) {
+  popCount++;
+  spawnParticles(b.x, b.y, cfg.juice ? 14 : 6, '#ff8a5c', 260);
+  if (cfg.juice) shake = Math.min(shake + 5, 10);
+  if (!noReward && cfg.coinsKill > 0) {
+    coins += cfg.coinsKill;
+    floaters.push({ x: b.x, y: b.y, txt: `+${cfg.coinsKill}🪙`, color: '#ffd35c', age: 0 });
+  }
+}
+
+function spawnParticles(x, y, n, color, speed) {
+  if (particles.length > 300) return;
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, s = speed * (0.4 + Math.random() * 0.8);
+    particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - speed * 0.4,
+                     life: 0.35 + Math.random() * 0.3, max: 0.65, color });
+  }
+}
+
+/* ============================== RENDER ============================== */
+
+function ballColor(b) {
+  const t = 1 - Math.max(0, b.hp / b.maxHp);
+  const h = 195 + t * 165;
+  const l = 62 - t * 8;
+  return `hsl(${h} 90% ${l}%)`;
+}
+
+function drawLvlPips(x, y, lvl) {
+  if (!lvl) return;
+  ctx.fillStyle = '#ffd35c';
+  const n = Math.min(lvl, 5);
+  for (let i = 0; i < n; i++) {
+    ctx.beginPath();
+    ctx.arc(x - (n - 1) * 3 + i * 6, y, 2, 0, 6.2832);
+    ctx.fill();
+  }
+}
+
+function render(alpha) {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = '#0b0e14';
+  ctx.fillRect(0, 0, W, H);
+
+  if (cfg.juice && shake > 0.15) {
+    ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+  }
+
+  // traffic heatmap from the last wave (setup phases only — place against the routes)
+  if (!running && cfg.heatmap && heatMax > 0) {
+    for (let hy = 0; hy < heatRows; hy++) {
+      for (let hx = 0; hx < heatCols; hx++) {
+        const v = heatLast[hx + hy * heatCols];
+        if (v < heatMax * 0.08) continue;
+        const t = v / heatMax;
+        const a = Math.min(0.34, t * t * 0.6);   // quadratic: the busy lanes pop, the wash fades
+        ctx.fillStyle = `rgba(255,140,60,${a})`;
+        ctx.fillRect(hx * HEAT_CELL, hy * HEAT_CELL, HEAT_CELL, HEAT_CELL);
+      }
+    }
+  }
+
+  // baskets
+  {
+    const by = basketTop(), n = BASKETS.length, bw = W / n;
+    ctx.font = '700 12px ui-monospace, Menlo, monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (let i = 0; i < n; i++) {
+      const bk = BASKETS[i];
+      ctx.fillStyle = bk.color;
+      roundRect(i * bw + 2, by, bw - 4, BASKET_H, 7);
+      ctx.fill();
+      ctx.strokeStyle = bk.rim;
+      ctx.lineWidth = 1.5;
+      roundRect(i * bw + 2, by, bw - 4, BASKET_H, 7);
+      ctx.stroke();
+      ctx.fillStyle = bk.text;
+      ctx.fillText(bk.label, i * bw + bw / 2, by + BASKET_H / 2);
+    }
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  }
+
+  // angled walls
+  ctx.lineCap = 'round';
+  for (const wl of walls) {
+    ctx.strokeStyle = '#4a5878';
+    ctx.lineWidth = 10;
+    ctx.beginPath(); ctx.moveTo(wl.x1, wl.y1); ctx.lineTo(wl.x2, wl.y2); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,.14)';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(wl.x1, wl.y1); ctx.lineTo(wl.x2, wl.y2); ctx.stroke();
+  }
+
+  // pegs
+  ctx.fillStyle = '#3a4560';
+  ctx.beginPath();
+  for (const p of pegs) {
+    if (p.bumper || p.socket) continue;   // sockets draw as rings; units cover built ones
+    ctx.moveTo(p.x + cfg.pegRadius, p.y);
+    ctx.arc(p.x, p.y, cfg.pegRadius, 0, 6.2832);
+  }
+  ctx.fill();
+
+  // build sockets — dashed rings; glow while a draw is waiting to be placed
+  {
+    const placing = currentDraw() !== null;
+    const pulse2 = placing ? 0.55 + 0.35 * Math.sin(simT * 6) : 0.28;
+    ctx.setLineDash([3, 4]);
+    ctx.lineWidth = 1.5;
+    for (const p of pegs) {
+      if (!p.socket || p.built) continue;
+      ctx.strokeStyle = `rgba(140,180,240,${pulse2})`;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, 6.2832); ctx.stroke();
+      ctx.fillStyle = `rgba(140,180,240,${pulse2 * 0.7})`;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 1.8, 0, 6.2832); ctx.fill();
+    }
+    ctx.setLineDash([]);
+  }
+
+  // bumper pegs — bright, ringed, alive
+  for (const p of pegs) {
+    if (!p.bumper) continue;
+    const r = cfg.pegRadius + 3;
+    ctx.fillStyle = '#e0455c';
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.2832); ctx.fill();
+    ctx.strokeStyle = `rgba(255,255,255,${0.55 + 0.3 * Math.sin(simT * 6)})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(p.x, p.y, r + 2.5, 0, 6.2832); ctx.stroke();
+  }
+
+  // faint range circles (tuning aid)
+  ctx.lineWidth = 1;
+  for (const g of units.gunners) {
+    const p = pegs[g.p]; if (!p) continue;
+    ctx.strokeStyle = 'rgba(255,210,90,.14)';
+    ctx.beginPath(); ctx.arc(p.x, p.y, cfg.gunRange * lvlMult(g), 0, 6.2832); ctx.stroke();
+  }
+  for (const s of units.snipers) {
+    const p = pegs[s.p]; if (!p) continue;
+    ctx.strokeStyle = 'rgba(255,125,154,.12)';
+    ctx.beginPath(); ctx.arc(p.x, p.y, cfg.snipRange * lvlMult(s), 0, 6.2832); ctx.stroke();
+  }
+
+  // peg-hit flashes
+  if (cfg.juice) {
+    for (const f of flashes) {
+      const t = f.age / 0.25;
+      ctx.strokeStyle = `rgba(160,200,255,${(1 - t) * 0.8})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, cfg.pegRadius + 2 + t * 12, 0, 6.2832);
+      ctx.stroke();
+    }
+  }
+
+  // field ripples
+  for (const rg of rings) {
+    const t = rg.age / 0.55;
+    ctx.strokeStyle = rg.inward
+      ? `rgba(80,220,200,${(1 - t) * 0.35})`
+      : `rgba(190,140,255,${(1 - t) * 0.35})`;
+    ctx.lineWidth = 2 * (1 - t) + 1;
+    ctx.beginPath();
+    ctx.arc(rg.x, rg.y, rg.R * (rg.inward ? 1 - 0.8 * t : 0.2 + 0.8 * t), 0, 6.2832);
+    ctx.stroke();
+  }
+
+  // fans
+  for (let fi = 0; fi < units.fans.length; fi++) {
+    const f = units.fans[fi];
+    const p = pegs[f.p]; if (!p) continue;
+    const flm = lvlMult(f);
+    const reach = cfg.fanReach * flm;
+    const hw = cfg.fanWidth * flm / 2, top = p.y - reach;
+    const grad = ctx.createLinearGradient(0, p.y, 0, top);
+    grad.addColorStop(0, 'rgba(140,190,255,.10)');
+    grad.addColorStop(1, 'rgba(140,190,255,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(p.x - hw, top, hw * 2, reach);
+    ctx.strokeStyle = 'rgba(170,210,255,.35)';
+    ctx.lineWidth = 1.5;
+    for (let k = 0; k < 5; k++) {
+      const sxr = p.x - hw + ((fi * 37 + k * 53) % 97) / 97 * hw * 2;
+      const phase = ((simT * 240 + k * 61 + fi * 29) % reach);
+      const yy = p.y - phase;
+      ctx.globalAlpha = 0.4 * (1 - phase / reach);
+      ctx.beginPath(); ctx.moveTo(sxr, yy); ctx.lineTo(sxr, yy - 12); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    const r = Math.max(cfg.pegRadius + 3, 9);
+    ctx.fillStyle = '#4a7dc9';
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.2832); ctx.fill();
+    ctx.strokeStyle = '#cfe4ff';
+    ctx.lineWidth = 2;
+    for (let k = 0; k < 3; k++) {
+      const a0 = simT * 9 + k * 2.094;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r - 3.5, a0, a0 + 1.1); ctx.stroke();
+    }
+    drawLvlPips(p.x, p.y - r - 6, f.lvl);
+  }
+
+  // portals
+  for (let i = 0; i < units.portals.length; i++) {
+    const pt = units.portals[i];
+    const pa = pegs[pt.a], pb = pegs[pt.b];
+    if (!pa || !pb) continue;
+    const col = PORTAL_COLORS[i % PORTAL_COLORS.length];
+    ctx.strokeStyle = col;
+    ctx.globalAlpha = 0.12;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 7]);
+    ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    for (const p of [pa, pb]) {
+      ctx.fillStyle = 'rgba(10,14,22,.85)';
+      ctx.beginPath(); ctx.arc(p.x, p.y, cfg.portalRadius - 2, 0, 6.2832); ctx.fill();
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = col;
+      for (let k = 0; k < 2; k++) {
+        const a0 = simT * 3 + k * Math.PI + i * 1.3;
+        ctx.beginPath(); ctx.arc(p.x, p.y, cfg.portalRadius, a0, a0 + 2.1); ctx.stroke();
+      }
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath(); ctx.arc(p.x, p.y, cfg.portalRadius * 0.55, -simT * 4, -simT * 4 + 4); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+  // pending pair-endpoint highlight (portal or laser first half)
+  if (sel.pendingPeg >= 0 && pegs[sel.pendingPeg]) {
+    const p = pegs[sel.pendingPeg];
+    const col = currentDraw() === 'laser' ? '255,120,80' : '77,215,255';
+    ctx.strokeStyle = `rgba(${col},${0.5 + 0.4 * Math.sin(simT * 8)})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(p.x, p.y, cfg.portalRadius, 0, 6.2832); ctx.stroke();
+  }
+
+  // laser beams + emitters
+  const pulse = 0.7 + 0.3 * Math.sin(simT * 14);
+  ctx.lineCap = 'round';
+  if (cfg.laserDps > 0) {
+    for (let i = 0; i < units.lasers.length; i++) {
+      for (let j = i + 1; j < units.lasers.length; j++) {
+        const la = pegs[units.lasers[i].p], lb = pegs[units.lasers[j].p];
+        if (!la || !lb) continue;
+        ctx.strokeStyle = `rgba(255,60,40,${0.16 * pulse})`;
+        ctx.lineWidth = 9;
+        ctx.beginPath(); ctx.moveTo(la.x, la.y); ctx.lineTo(lb.x, lb.y); ctx.stroke();
+        ctx.strokeStyle = `rgba(255,120,80,${0.9 * pulse})`;
+        ctx.lineWidth = 2.2;
+        ctx.beginPath(); ctx.moveTo(la.x, la.y); ctx.lineTo(lb.x, lb.y); ctx.stroke();
+      }
+    }
+  }
+  ctx.fillStyle = '#ff6a4a';
+  for (const l of units.lasers) {
+    const p = pegs[l.p]; if (!p) continue;
+    ctx.beginPath(); ctx.arc(p.x, p.y, cfg.pegRadius + 1.5, 0, 6.2832); ctx.fill();
+    drawLvlPips(p.x, p.y - cfg.pegRadius - 8, l.lvl);
+    ctx.fillStyle = '#ff6a4a';
+  }
+
+  // sonic units
+  for (const s of units.sonics) {
+    const p = pegs[s.p]; if (!p) continue;
+    const rad = cfg.sonicRadius * lvlMult(s);
+    const breathe = 1 + 0.02 * Math.sin(simT * 5);
+    ctx.fillStyle = 'rgba(138,92,255,.07)';
+    ctx.beginPath(); ctx.arc(p.x, p.y, rad * breathe, 0, 6.2832); ctx.fill();
+    ctx.strokeStyle = `rgba(190,140,255,${0.3 + 0.12 * Math.sin(simT * 5)})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(p.x, p.y, rad * breathe, 0, 6.2832); ctx.stroke();
+    const r = Math.max(cfg.pegRadius + 3, 8);
+    ctx.fillStyle = '#8a5cff';
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.2832); ctx.fill();
+    drawLvlPips(p.x, p.y - r - 6, s.lvl);
+  }
+
+  // vacuum units
+  for (const v of units.vacuums) {
+    const p = pegs[v.p]; if (!p) continue;
+    const rad = cfg.vacRadius * lvlMult(v);
+    const breathe = 1 + 0.02 * Math.sin(simT * 5 + 2);
+    ctx.fillStyle = 'rgba(60,200,180,.06)';
+    ctx.beginPath(); ctx.arc(p.x, p.y, rad * breathe, 0, 6.2832); ctx.fill();
+    ctx.strokeStyle = `rgba(80,220,200,${0.3 + 0.12 * Math.sin(simT * 5 + 2)})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(p.x, p.y, rad * breathe, 0, 6.2832); ctx.stroke();
+    const r = Math.max(cfg.pegRadius + 3, 8);
+    ctx.fillStyle = '#2ec4a9';
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.2832); ctx.fill();
+    ctx.strokeStyle = 'rgba(220,255,248,.85)';
+    ctx.lineWidth = 2;
+    for (let k = 0; k < 2; k++) {
+      const a0 = -simT * 4 + k * Math.PI;
+      ctx.beginPath(); ctx.arc(p.x, p.y, r - 3, a0, a0 + 1.9); ctx.stroke();
+    }
+    drawLvlPips(p.x, p.y - r - 6, v.lvl);
+  }
+
+  // sniper units
+  for (const s of units.snipers) {
+    const p = pegs[s.p]; if (!p) continue;
+    const r = Math.max(cfg.pegRadius + 3, 8);
+    ctx.fillStyle = '#d94a6a';
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.2832); ctx.fill();
+    ctx.strokeStyle = '#5c1f2e';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x + Math.cos(s.aim) * (r + 12), p.y + Math.sin(s.aim) * (r + 12));
+    ctx.stroke();
+    const chg = 1 - Math.max(0, s.cd) * cfg.snipRate * lvlMult(s);
+    ctx.strokeStyle = 'rgba(255,190,205,.85)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(p.x, p.y, r + 3, -Math.PI / 2, -Math.PI / 2 + Math.max(0, Math.min(1, chg)) * 6.2832); ctx.stroke();
+    drawLvlPips(p.x, p.y - r - 7, s.lvl);
+  }
+
+  // gunner units
+  for (const g of units.gunners) {
+    const p = pegs[g.p]; if (!p) continue;
+    const r = Math.max(cfg.pegRadius + 3, 8);
+    ctx.fillStyle = '#e8a33d';
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.2832); ctx.fill();
+    ctx.strokeStyle = '#5a3d10';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x + Math.cos(g.aim) * (r + 6), p.y + Math.sin(g.aim) * (r + 6));
+    ctx.stroke();
+    drawLvlPips(p.x, p.y - r - 6, g.lvl);
+  }
+
+  // flippers
+  for (const f of units.flippers) {
+    const p = pegs[f.p]; if (!p) continue;
+    const L = cfg.flipLen * lvlMult(f);
+    const tx = p.x + f.dir * Math.cos(f.ang) * L, ty = p.y + Math.sin(f.ang) * L;
+    ctx.strokeStyle = f.phase === 'flip' ? '#ff7aa8' : '#e05c8a';
+    ctx.lineWidth = 11;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(tx, ty); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,.3)';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(tx, ty); ctx.stroke();
+    ctx.fillStyle = '#8a2c4d';
+    ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, 6.2832); ctx.fill();
+    drawLvlPips(p.x, p.y - 14, f.lvl);
+  }
+
+  // sweeper (interpolated)
+  const swx = sweeper.px + (sweeper.x - sweeper.px) * alpha;
+  const swY = H * cfg.sweepY;
+  ctx.fillStyle = '#e8a33d';
+  roundRect(swx - sweeper.w / 2, swY - sweeper.h / 2, sweeper.w, sweeper.h, 7);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.25)';
+  roundRect(swx - sweeper.w / 2 + 3, swY - sweeper.h / 2 + 2, sweeper.w - 6, 4, 3);
+  ctx.fill();
+
+  // trails
+  if (cfg.juice) {
+    for (const b of balls) {
+      const t = b.trail;
+      const n = t.length / 2;
+      for (let i = 0; i < n; i++) {
+        const f = (i + 1) / (n + 1);
+        ctx.fillStyle = `rgba(120,190,255,${f * 0.14})`;
+        ctx.beginPath();
+        ctx.arc(t[i * 2], t[i * 2 + 1], ballR(b) * f * 0.8, 0, 6.2832);
+        ctx.fill();
+      }
+    }
+  }
+
+  // bullets
+  for (const bu of bullets) {
+    if (bu.r < 3) {
+      const sp = Math.hypot(bu.vx, bu.vy) || 1;
+      ctx.strokeStyle = 'rgba(255,125,154,.5)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(bu.x - bu.vx / sp * 16, bu.y - bu.vy / sp * 16);
+      ctx.lineTo(bu.x, bu.y);
+      ctx.stroke();
+    }
+    ctx.fillStyle = bu.color;
+    ctx.beginPath(); ctx.arc(bu.x, bu.y, bu.r, 0, 6.2832); ctx.fill();
+  }
+
+  // balls — tanks are armored hexagons, tinys are sparks with a white core
+  for (const b of balls) {
+    const x = b.px + (b.x - b.px) * alpha;
+    const y = b.py + (b.y - b.py) * alpha;
+    const hpT = Math.max(0, b.hp / b.maxHp);
+    const r = ballR(b) * (0.55 + 0.45 * hpT);
+    ctx.save();
+    ctx.translate(x, y);
+    if (cfg.juice && b.squash > 0.05) {
+      ctx.rotate(Math.atan2(b.sqy, b.sqx));
+      ctx.scale(1 - b.squash * 0.35, 1 + b.squash * 0.35);
+    }
+    ctx.fillStyle = ballColor(b);
+    if (b.type === 'tank') {
+      ctx.beginPath();
+      for (let k = 0; k < 6; k++) {
+        const a = Math.PI / 6 + k * Math.PI / 3;
+        const px2 = Math.cos(a) * r * 1.12, py2 = Math.sin(a) * r * 1.12;
+        k ? ctx.lineTo(px2, py2) : ctx.moveTo(px2, py2);
+      }
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#141b29';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.2832); ctx.fill();
+      if (b.type === 'tiny') {
+        ctx.fillStyle = 'rgba(255,255,255,.9)';
+        ctx.beginPath(); ctx.arc(0, 0, r * 0.4, 0, 6.2832); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  // particles
+  for (const p of particles) {
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = Math.max(0, p.life / p.max);
+    ctx.beginPath(); ctx.arc(p.x, p.y, 2.4, 0, 6.2832); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // floating callouts
+  ctx.font = '700 14px ui-monospace, Menlo, monospace';
+  ctx.textAlign = 'center';
+  for (const f of floaters) {
+    ctx.globalAlpha = 1 - f.age / 0.9;
+    ctx.fillStyle = f.color;
+    ctx.fillText(f.txt, f.x, f.y - 34 * f.age);
+  }
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'left';
+
+  // player HP bar + coins (top-right)
+  {
+    const bw = 140, bx = W - bw - 14, by = 12, frac = Math.max(0, playerHp / cfg.playerHp);
+    const hit = simT - hpHitT < 0.25;
+    ctx.fillStyle = '#1a2233';
+    roundRect(bx, by, bw, 13, 6); ctx.fill();
+    ctx.fillStyle = hit ? '#ff5d3d' : (frac > 0.5 ? '#4caf6e' : frac > 0.25 ? '#e8a33d' : '#e05c4a');
+    if (frac > 0) { roundRect(bx, by, Math.max(8, bw * frac), 13, 6); ctx.fill(); }
+    ctx.strokeStyle = hit ? '#ff8a70' : '#33405c';
+    ctx.lineWidth = 1;
+    roundRect(bx, by, bw, 13, 6); ctx.stroke();
+    ctx.fillStyle = '#e8eef8';
+    ctx.font = '700 10px ui-monospace, Menlo, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`HP ${Math.max(0, Math.round(playerHp))}`, bx + bw / 2, by + 10);
+    ctx.textAlign = 'right';
+    ctx.font = '700 12px ui-monospace, Menlo, monospace';
+    ctx.fillStyle = '#ffd35c';
+    ctx.fillText(`🪙 ${coins}`, bx + bw, by + 28);
+    ctx.textAlign = 'left';
+  }
+
+  // wave banner
+  if (result) {
+    ctx.fillStyle = 'rgba(11,14,20,.72)';
+    ctx.fillRect(0, H * 0.30, W, 110);
+    ctx.textAlign = 'center';
+    ctx.font = '800 24px -apple-system, sans-serif';
+    if (result === 'cleared') {
+      ctx.fillStyle = '#6fe0a0';
+      ctx.fillText(`WAVE ${waveNum - 1} CLEARED ✓`, W / 2, H * 0.30 + 40);
+      ctx.font = '600 12px -apple-system, sans-serif';
+      ctx.fillStyle = '#aeb8c9';
+      ctx.fillText(`+${cfg.drawsPW} draws · +${cfg.coinsPW} coins — place, tap units to upgrade`, W / 2, H * 0.30 + 66);
+      ctx.fillText(`▶ Start wave ${waveNum}${mode === 'campaign' ? '/' + WAVES_PER_LEVEL : ''} (${waveTarget()} balls, tougher)`, W / 2, H * 0.30 + 86);
+    } else if (result === 'levelup') {
+      ctx.fillStyle = '#6fe0a0';
+      ctx.fillText(`LEVEL ${levelNum - 1} CLEARED ✓`, W / 2, H * 0.30 + 40);
+      ctx.font = '600 12px -apple-system, sans-serif';
+      ctx.fillStyle = '#aeb8c9';
+      ctx.fillText(`Level ${levelNum} · ${LEVELS[levelNum - 1].name} — new board, new deck, HP refilled`, W / 2, H * 0.30 + 66);
+      ctx.fillText(`place your units, then ▶ Start`, W / 2, H * 0.30 + 86);
+    } else if (result === 'champion') {
+      ctx.fillStyle = '#ffd35c';
+      ctx.fillText('🏆 CAMPAIGN CLEARED', W / 2, H * 0.30 + 40);
+      ctx.font = '600 12px -apple-system, sans-serif';
+      ctx.fillStyle = '#aeb8c9';
+      ctx.fillText('all 3 levels beaten — ▶ Start to play again', W / 2, H * 0.30 + 66);
+    } else {
+      ctx.fillStyle = '#ff7a5c';
+      ctx.fillText('DEFEATED ✗', W / 2, H * 0.30 + 40);
+      ctx.font = '600 12px -apple-system, sans-serif';
+      ctx.fillStyle = '#aeb8c9';
+      const where = mode === 'campaign' ? `on level ${levelNum} wave ${waveNum}` : `after ${waveNum - 1} wave${waveNum - 1 === 1 ? '' : 's'}`;
+      ctx.fillText(`${where} — ▶ Start to retry`, W / 2, H * 0.30 + 66);
+    }
+    ctx.textAlign = 'left';
+  }
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/* ============================== MAIN LOOP ============================== */
+
+let last = performance.now();
+let acc = 0;
+let fpsSmooth = 60;
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  let dt = (now - last) / 1000;
+  last = now;
+  if (dt > 0.1) dt = 0.1;
+  fpsSmooth += (1 / Math.max(dt, 1e-4) - fpsSmooth) * 0.05;
+
+  acc += dt;
+  let steps = 0;
+  while (acc >= DT && steps < 6) { step(); acc -= DT; steps++; }
+  if (steps === 6) acc = 0;
+
+  render(acc / DT);
+
+  let st = result ? result.toUpperCase()
+         : running ? 'RUN' : (currentDraw() ? `PLACE ${currentDraw()}` : 'SETUP');
+  if (running && quotaDoneT >= 0 && cfg.waveTimeout > 0) {
+    const left = Math.ceil(cfg.waveTimeout - (simT - quotaDoneT));
+    if (left <= 15) st = `RUN ⌛${left}`;
+  }
+  const waveTxt = mode === 'campaign'
+    ? `L${levelNum} wave ${Math.min(waveNum, WAVES_PER_LEVEL)}/${WAVES_PER_LEVEL}`
+    : `wave ${waveNum}`;
+  hud.textContent =
+    `balls ${String(balls.length).padStart(3)} / ${cfg.cap}   fps ${fpsSmooth.toFixed(0)}\n` +
+    `${waveTxt}  spawned ${spawnedCount}/${waveTarget()}  deck ${deck.length + drawOptions.length}  seed ${cfg.seed}  ${st}`;
+}
+
+/* ============================== UI ============================== */
+
+const sliderEls = {};
+let syncMisc = () => {};
+
+function buildSliders() {
+  const groups = {
+    game:    document.getElementById('sliders-game'),
+    physics: document.getElementById('sliders-physics'),
+    board:   document.getElementById('sliders-board'),
+    balls:   document.getElementById('sliders-balls'),
+    laser:   document.getElementById('sliders-laser'),
+    sonic:   document.getElementById('sliders-sonic'),
+    gunner:  document.getElementById('sliders-gunner'),
+    sniper:  document.getElementById('sliders-sniper'),
+    vacuum:  document.getElementById('sliders-vacuum'),
+    portal:  document.getElementById('sliders-portal'),
+    fan:     document.getElementById('sliders-fan'),
+    flipper: document.getElementById('sliders-flipper'),
+    sweeper: document.getElementById('sliders-sweeper'),
+  };
+  for (const [key, label, min, max, stepV, group] of SLIDERS) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `<label>${label}</label><input type="range"><output></output>`;
+    const input = row.querySelector('input');
+    const out = row.querySelector('output');
+    input.min = min; input.max = max; input.step = stepV; input.value = cfg[key];
+    out.textContent = fmt(cfg[key]);
+    input.addEventListener('input', () => {
+      cfg[key] = +input.value;
+      out.textContent = fmt(cfg[key]);
+      if (key === 'pegRadius' || key === 'spacingX' || key === 'spacingY') buildPegs();
+      writeHash();
+    });
+    sliderEls[key] = { input, out };
+    groups[group].appendChild(row);
+  }
+}
+
+function fmt(v) { return Number.isInteger(v) ? String(v) : (+v.toFixed(2)).toString(); }
+
+function syncSliders(keys) {
+  for (const k of keys || Object.keys(sliderEls)) {
+    const el = sliderEls[k];
+    if (el) { el.input.value = cfg[k]; el.out.textContent = fmt(cfg[k]); }
+  }
+}
+
+/* ------- draft placement + upgrades ------- */
+
+function updateDrawCard() {
+  const name = (t) => t === 'laser' && units.lasers.length === 0 ? 'Laser pair' : UNIT_META[t][1];
+  const cards = [document.getElementById('draw-card0'), document.getElementById('draw-card1')];
+  const noDraws = drawsAvail <= 0 || drawOptions.length === 0;
+  for (let i = 0; i < 2; i++) {
+    const t = drawOptions[i];
+    const card = cards[i];
+    if (noDraws) {
+      if (i === 0) {
+        document.getElementById('draw-ic0').textContent = '💤';
+        document.getElementById('draw-name0').textContent = 'No draws';
+        card.classList.add('empty');
+        card.classList.remove('sel');
+        card.style.display = '';
+      } else card.style.display = 'none';
+      continue;
+    }
+    if (t === undefined) { card.style.display = 'none'; continue; }
+    card.style.display = '';
+    card.classList.remove('empty');
+    document.getElementById('draw-ic' + i).textContent = UNIT_META[t][0];
+    document.getElementById('draw-name' + i).textContent = name(t);
+    card.classList.toggle('sel', chosen === i);
+  }
+  document.getElementById('draw-count').textContent = Math.max(0, drawsAvail);
+
+  // centered draft popup mirrors the options
+  const draft = document.getElementById('draft');
+  const show = draftOpen && !noDraws;
+  if (show) {
+    for (let i = 0; i < 2; i++) {
+      const t = drawOptions[i];
+      const dc = document.getElementById('dcard' + i);
+      if (t === undefined) { dc.style.display = 'none'; continue; }
+      dc.style.display = '';
+      dc.querySelector('.dic').textContent = UNIT_META[t][0];
+      dc.querySelector('.dname').textContent = name(t);
+    }
+    document.getElementById('draft-left').textContent = drawsAvail;
+  }
+  draft.hidden = !show;
+}
+
+function nearestPegIndex(x, y, maxD, filter) {
+  let best = -1, bestD2 = maxD * maxD;
+  for (let i = 0; i < pegs.length; i++) {
+    if (filter && !filter(pegs[i], i)) continue;
+    const dx = pegs[i].x - x, dy = pegs[i].y - y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestD2) { bestD2 = d2; best = i; }
+  }
+  return best;
+}
+
+function unitAtPeg(pi) {
+  for (const l of units.lasers)   if (l.p === pi) return { kind: 'laser', u: l };
+  for (const s of units.sonics)   if (s.p === pi) return { kind: 'sonic', u: s };
+  for (const g of units.gunners)  if (g.p === pi) return { kind: 'gunner', u: g };
+  for (const v of units.vacuums)  if (v.p === pi) return { kind: 'vacuum', u: v };
+  for (const s of units.snipers)  if (s.p === pi) return { kind: 'sniper', u: s };
+  for (const f of units.fans)     if (f.p === pi) return { kind: 'fan', u: f };
+  for (const f of units.flippers) if (f.p === pi) return { kind: 'flipper', u: f };
+  for (const pt of units.portals) if (pt.a === pi || pt.b === pi) return { kind: 'portal', u: pt };
+  return null;
+}
+
+function tryUpgrade(hit, peg) {
+  if (hit.kind === 'portal') {
+    floaters.push({ x: peg.x, y: peg.y - 14, txt: 'no upgrade', color: '#8a94a8', age: 0 });
+    return;
+  }
+  const u = hit.u;
+  const cost = UPGRADE_COST * ((u.lvl || 0) + 1);
+  if (coins >= cost) {
+    coins -= cost;
+    u.lvl = (u.lvl || 0) + 1;
+    floaters.push({ x: peg.x, y: peg.y - 14, txt: `LV${u.lvl + 1}!`, color: '#ffd35c', age: 0 });
+    if (cfg.juice) spawnParticles(peg.x, peg.y, 8, '#ffd35c', 160);
+  } else {
+    floaters.push({ x: peg.x, y: peg.y - 14, txt: `${cost}🪙`, color: '#ff9d8a', age: 0 });
+  }
+}
+
+function boardTap(x, y) {
+  // tap near a built unit = upgrade attempt
+  const upi = nearestPegIndex(x, y, 30, (p, i) => !!unitAtPeg(i));
+  if (upi >= 0 && sel.pendingPeg !== upi) { tryUpgrade(unitAtPeg(upi), pegs[upi]); return; }
+  const t = currentDraw();
+  if (!t) return;
+  // placement: sockets only on socketed boards; never on bumpers or occupied spots
+  const pi = nearestPegIndex(x, y, 44, (p, i) =>
+    !unitAtPeg(i) && !p.bumper && (!hasSockets || p.socket));
+  if (pi < 0) return;
+  const laserPair = t === 'laser' && units.lasers.length === 0;   // first laser of the run = pair
+  if (t === 'portal' || laserPair) {            // pairs: two taps place both halves
+    if (sel.pendingPeg < 0) { sel.pendingPeg = pi; return; }
+    if (sel.pendingPeg === pi) { sel.pendingPeg = -1; return; }
+    if (t === 'portal') units.portals.push({ a: sel.pendingPeg, b: pi });
+    else units.lasers.push({ p: sel.pendingPeg, lvl: 0 }, { p: pi, lvl: 0 });
+    sel.pendingPeg = -1;
+  }
+  else if (t === 'laser')   units.lasers.push({ p: pi, lvl: 0 });
+  else if (t === 'sonic')   units.sonics.push({ p: pi, rip: 0, lvl: 0 });
+  else if (t === 'gunner')  units.gunners.push({ p: pi, cd: 0, aim: -Math.PI / 2, lvl: 0 });
+  else if (t === 'vacuum')  units.vacuums.push({ p: pi, rip: 0, lvl: 0 });
+  else if (t === 'sniper')  units.snipers.push({ p: pi, cd: 0, aim: -Math.PI / 2, lvl: 0 });
+  else if (t === 'fan')     units.fans.push({ p: pi, lvl: 0 });
+  else if (t === 'flipper') units.flippers.push(newFlipper(pi));
+  consumeDraw();
+  syncBuiltFlags();
+  updateDrawCard();
+  writeHash();
+}
+
+function bindUI() {
+  const panel = document.getElementById('panel');
+  const toggle = document.getElementById('btn-toggle');
+  toggle.addEventListener('click', () => {
+    panel.classList.toggle('collapsed');
+    toggle.textContent = panel.classList.contains('collapsed') ? '⚙ Tuning ▾' : '⚙ Tuning ▴';
+  });
+  document.getElementById('btn-drop').addEventListener('click', () => spawnBall(false));
+  document.getElementById('btn-reset').addEventListener('click', () => {
+    const restore = mode === 'campaign' ? levelStartCoins : 0;
+    reset();
+    coins = restore;
+  });
+  document.getElementById('btn-start').addEventListener('click', startLevel);
+  document.getElementById('btn-levels').addEventListener('click', startCampaign);
+  document.getElementById('btn-random').addEventListener('click', randomizeLevel);
+  document.getElementById('btn-default').addEventListener('click', defaultLevel);
+
+  canvas.addEventListener('pointerdown', (e) => boardTap(e.clientX, e.clientY));
+
+  for (const i of [0, 1]) {
+    // bar cards: re-select, or reopen the draft popup
+    document.getElementById('draw-card' + i).addEventListener('click', () => {
+      if (drawOptions[i] === undefined) return;
+      chosen = i;
+      sel.pendingPeg = -1;   // switching cards cancels a half-placed pair
+      draftOpen = true;
+      updateDrawCard();
+    });
+    // popup cards: choose and get placing
+    document.getElementById('dcard' + i).addEventListener('click', () => {
+      if (drawOptions[i] === undefined) return;
+      chosen = i;
+      sel.pendingPeg = -1;
+      draftOpen = false;
+      updateDrawCard();
+    });
+  }
+  // tapping the dim backdrop peeks at the board without choosing
+  document.getElementById('draft').addEventListener('click', (e) => {
+    if (e.target.id === 'draft') { draftOpen = false; updateDrawCard(); }
+  });
+
+  const juice = document.getElementById('juice-toggle');
+  juice.checked = !!cfg.juice;
+  juice.addEventListener('change', () => { cfg.juice = juice.checked ? 1 : 0; writeHash(); });
+  const ballcol = document.getElementById('ballcol-toggle');
+  ballcol.checked = !!cfg.ballCol;
+  ballcol.addEventListener('change', () => { cfg.ballCol = ballcol.checked ? 1 : 0; writeHash(); });
+  const heat = document.getElementById('heat-toggle');
+  heat.checked = !!cfg.heatmap;
+  heat.addEventListener('change', () => { cfg.heatmap = heat.checked ? 1 : 0; writeHash(); });
+
+  const seg = document.getElementById('spawn-seg');
+  const segSync = () => {
+    for (const btn of seg.children) btn.classList.toggle('on', +btn.dataset.v === cfg.spawnMode);
+  };
+  segSync();
+  syncMisc = () => {
+    juice.checked = !!cfg.juice;
+    ballcol.checked = !!cfg.ballCol;
+    heat.checked = !!cfg.heatmap;
+    segSync();
+  };
+  seg.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    cfg.spawnMode = +btn.dataset.v;
+    segSync(); writeHash();
+  });
+}
+
+/* ============================== BOOT ============================== */
+
+const hadSharedHash = !!location.hash.replace(/^#/, '');
+readHash();
+if (!cfg.seed) cfg.seed = 1 + Math.floor(Math.random() * 999999);
+buildSliders();
+bindUI();
+resize();
+applyUnitsFromHash();
+window.addEventListener('resize', resize);
+reset(true);   // keep units restored from a shared URL
+writeHash();
+if (!hadSharedHash) startCampaign();   // testers land straight in the intended experience
+requestAnimationFrame((t) => { last = t; requestAnimationFrame(frame); });
+
+// debug handle
+window.PC = { cfg, balls, bullets, units, reset, spawnBall, step, render, startLevel, boardTap,
+  randomizeLevel, defaultLevel, startCampaign, loadLevel, tryUpgrade, unitAtPeg, LEVELS,
+  get mode() { return mode; }, get levelNum() { return levelNum; },
+  get stock() { return stock; }, get deck() { return deck; },
+  get options() { return drawOptions; }, get chosen() { return chosen; },
+  set chosen(v) { chosen = v; updateDrawCard(); },
+  get drawsAvail() { return drawsAvail; }, get coins() { return coins; }, set coins(v) { coins = v; },
+  get waveNum() { return waveNum; }, get pegs() { return pegs; }, get simT() { return simT; },
+  get pops() { return popCount; }, get running() { return running; },
+  get heatMax() { return heatMax; }, get heatLast() { return heatLast; },
+  setLayout(arr) { activeLayout = arr; buildPegs(); },   // live board authoring
+  get playerHp() { return playerHp; }, get result() { return result; },
+  get currentDraw() { return currentDraw(); } };
+
+})();
+</script>
+</body>
+</html>
